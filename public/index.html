@@ -1,0 +1,64 @@
+<!doctype html>
+<html lang="zh-Hant">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, maximum-scale=1, user-scalable=no">
+<title>烽火世紀 1936–1991</title>
+<meta name="description" content="簡化友善的二戰到冷戰大戰略網頁遊戲，支援多人連線。">
+<link rel="icon" href="data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 64 64'%3E%3Crect width='64' height='64' rx='12' fill='%2311151b'/%3E%3Cpath d='M32 8l6 16h17l-14 10 5 17-14-10-14 10 5-17L9 24h17z' fill='%23d9ae55'/%3E%3C/svg%3E">
+<link rel="stylesheet" href="css/style.css">
+</head>
+<body>
+<canvas id="map"></canvas>
+
+<!-- 主選單 -->
+<section id="scr-menu" class="screen on">
+  <div class="menu-box">
+    <h1>烽火世紀</h1>
+    <div class="sub">1936 — 1991</div>
+    <button class="big gold" data-act="sp">單人遊戲</button>
+    <button class="big" data-act="host">建立多人房間</button>
+    <button class="big" data-act="join">加入多人房間</button>
+    <button class="big" data-act="load">讀取存檔</button>
+    <button class="big" data-act="help">遊戲說明</button>
+    <div class="menu-foot">從二戰前夕打到冷戰結束：指揮軍隊、發展工業、研究科技、合縱連橫。<br>歷史事件會依時間發生，你的選擇可以改寫歷史。</div>
+  </div>
+</section>
+
+<!-- 開局設定（單人 / 主機大廳 / 客戶端大廳共用） -->
+<section id="scr-setup" class="screen">
+  <div class="setup">
+    <header><h2 id="setup-title">單人遊戲</h2><button class="btn small" data-act="back">返回</button></header>
+    <div class="body" id="setup-body"></div>
+    <footer id="setup-foot"></footer>
+  </div>
+</section>
+
+<!-- 遊戲畫面 -->
+<section id="scr-game" class="screen">
+  <header id="hud"></header>
+  <nav id="tabs">
+    <button data-tab="politics"><i>🏛️</i>政治<span class="dot"></span></button>
+    <button data-tab="research"><i>🔬</i>研究<span class="dot"></span></button>
+    <button data-tab="production"><i>🏭</i>生產<span class="dot"></span></button>
+    <button data-tab="diplomacy"><i>🤝</i>外交<span class="dot"></span></button>
+    <button data-tab="army"><i>🎖️</i>軍隊<span class="dot"></span></button>
+    <button data-tab="news"><i>📰</i>紀錄<span class="dot"></span></button>
+  </nav>
+  <aside id="panel" class="hidden"><header><h3 id="panel-title"></h3><button class="btn small" data-act="closepanel">✕</button></header><div class="pbody" id="panel-body"></div></aside>
+  <div id="selbox" class="hidden"></div>
+  <div id="mapmodes">
+    <button data-mode="political" class="on">政治</button>
+    <button data-mode="faction">陣營</button>
+    <button data-mode="terrain">地形</button>
+    <button data-mode="industry">工業</button>
+  </div>
+  <div id="toasts"></div>
+  <div id="chat" class="hidden"><div class="log"></div><input placeholder="聊天訊息…（Enter 送出）" maxlength="200"></div>
+</section>
+
+<div id="tooltip"></div>
+<div id="modal"></div>
+<script type="module" src="js/main.js"></script>
+</body>
+</html>

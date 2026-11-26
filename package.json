@@ -1,0 +1,21 @@
+{
+  "name": "century-of-fire",
+  "version": "1.0.0",
+  "private": true,
+  "type": "module",
+  "description": "烽火世紀 1936–1991：簡化版二戰到冷戰大戰略網頁遊戲（支援多人連線）",
+  "scripts": {
+    "start": "node server/server.js",
+    "build:map": "node tools/build-map.js",
+    "sim": "node tools/sim-test.js"
+  },
+  "engines": { "node": ">=18" },
+  "dependencies": {
+    "ws": "^8.18.0"
+  },
+  "devDependencies": {
+    "peerjs": "1.5.5",
+    "topojson-client": "^3.1.0",
+    "world-atlas": "^2.0.2"
+  }
+}
