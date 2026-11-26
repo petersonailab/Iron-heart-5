@@ -2,3 +2,4 @@ node_modules/
 tools/out/
 *.log
 .DS_Store
+public/flagtest.html

@@ -3,8 +3,10 @@ import { WORLD, ridx } from './world.js';
 import {
   alive, atWar, declareWar, setWar, makePeace, transferRegion, createCountry, killCountry, makeFaction, joinFaction,
   leaveFaction, addNews, spawnUnit, cname, enemySet, friendly, liveTags, nukeStrike, relocateHostile, isLandUnit, HOOKS,
+  grantTech, hasTech, bestUnitType,
 } from './engine.js';
 import { pushPrompt, PROMPT_HANDLERS } from './commands.js';
+import { beginCapture, endCapture, worldReact, inferTags } from './worldevents.js';
 import { strToDay, yearOf, dayToDate } from './util.js';
 import { UNITS } from '../data/rules.js';
 
@@ -45,7 +47,7 @@ export function mkApi(S) {
     units: (tag, spec, id) => {
       if (!alive(S, tag)) return [];
       const r = rid(id); const out = [];
-      for (const t in spec) for (let i = 0; i < spec[t]; i++) { const u = spawnUnit(S, tag, t, r); if (u) out.push(u); }
+      for (const t in spec) for (let i = 0; i < spec[t]; i++) { const u = spawnUnit(S, tag, bestUnitType(S, tag, t), r); if (u) out.push(u); }
       return out;
     },
     // 兩棲登陸：在目標相鄰海域生成部隊並下令搶灘
@@ -56,9 +58,9 @@ export function mkApi(S) {
       if (sea === undefined) return [];
       const out = [];
       for (const t in spec) for (let i = 0; i < spec[t]; i++) {
-        const u = spawnUnit(S, tag, t, sea);
+        const u = spawnUnit(S, tag, bestUnitType(S, tag, t), sea);
         if (!u) continue;
-        if (UNITS[t].domain === 'land') { u.path = [r]; u.prog = 0; }
+        if (UNITS[u.t].domain === 'land') { u.path = [r]; u.prog = 0; }
         out.push(u);
       }
       return out;
@@ -73,7 +75,8 @@ export function mkApi(S) {
     tempMod: (t, key, val, days) => { if (!alive(S, t)) return; S.C[t].mods[key] += val; (S.temp || (S.temp = [])).push({ tag: t, key, val, until: S.day + days }); },
     has: (k) => !!S.flags[k],
     isAI: (t) => !!(S.C[t] && S.C[t].ai),
-    tech: (t, cat, lvl) => { if (alive(S, t)) S.C[t].tech[cat] = Math.max(S.C[t].tech[cat] || 0, lvl); },
+    grant: (t, ids) => { if (alive(S, t)) for (const id of ids) grantTech(S, t, id); },
+    hasTech: (t, id) => alive(S, t) && hasTech(S.C[t], id),
     regionsOf: (t) => { const o = []; for (let r = 0; r < R; r++) if (S.own[r] === t) o.push(r); return o; },
     ctrlAny: (t, ids) => ids.some(id => S.ctrl[rid(id)] === t),
     alliedCtrlAny: (t, ids) => ids.some(id => { const c = S.ctrl[rid(id)]; return c === t || (c && friendly(S, c, t)); }),
@@ -258,22 +261,61 @@ ev({ id: 'spanish_civil_war', date: '1936-07-17', kind: 'war', title: '西班牙
     A.S.C.SPA.cap = A.rid('spa_valladolid');
     A.units('SPA', { inf: 5, arm: 3, ftr: 1 }, 'spa_seville');
     A.units('SPA', { inf: 3 }, 'spa_valladolid');
-    A.S.C.SPA.mods.att += 0.2; A.S.C.SPA.mods.def += 0.1; A.S.C.SPA.capMod = 0.5;
-    A.tempMod('SPR', 'att', -0.2, 900); A.tempMod('SPR', 'def', -0.1, 900);
+    A.S.C.SPA.mods.att += 0.1; A.S.C.SPA.mods.def += 0.1; A.S.C.SPA.capMod = 0.5;
+    A.tempMod('SPR', 'att', -0.2, 900); A.tempMod('SPR', 'def', 0.1, 820);
     A.war('SPA', 'SPR', { limited: true }); A.civil('SPA', 'SPR');
     A.lend('GER', 'SPA', 0.1); A.lend('ITA', 'SPA', 0.12); A.lend('SOV', 'SPR', 0.05);
   } });
 ev({ id: 'axis_1936', date: '1936-10-25', kind: 'news', title: '柏林-羅馬軸心', cond: A => A.exists('GER') && A.exists('ITA'), text: '德義兩國簽訂合作協議，墨索里尼稱之為「柏林-羅馬軸心」。' });
 ev({ id: 'anticomintern', date: '1936-11-25', kind: 'news', title: '反共產國際協定', cond: A => A.exists('GER') && A.exists('JAP'), text: '德國與日本簽訂《反共產國際協定》，次年義大利加入。' });
-ev({ id: 'xian', date: '1936-12-12', kind: 'news', title: '西安事變', cond: A => A.exists('CHI') && A.exists('PRC'),
-  text: '張學良、楊虎城在西安扣押蔣中正，促成停止內戰、一致抗日，第二次國共合作由此展開。', fire: A => A.nap('CHI', 'PRC', 10) });
+// 中日戰爭的 AI 作戰範圍：日軍以史實佔領區為目標（大後方的重慶、成都、昆明、西安等不在其中），也不清剿中共根據地
+const pairKeyOf = (a, b) => (a < b ? a + '|' + b : b + '|' + a);
+export const CHINA_OCC = ['chi_beiping', 'chi_shijiazhuang', 'chi_taiyuan', 'chi_datong', 'chi_jinan', 'chi_qingdao', 'chi_xuzhou', 'chi_nanjing', 'chi_shanghai', 'chi_hangzhou', 'chi_hefei', 'chi_wuhan', 'chi_nanchang', 'chi_guangzhou', 'chi_hainan', 'chi_chahar', 'chi_suiyuan', 'chi_zhengzhou', 'chi_yichang', 'chi_changsha', 'chi_guilin', 'chi_nanning', 'chi_fuzhou'];
+export function chinaWarLimits(A) {
+  if (!A.S.set.hist) return;
+  // 中國方面（AI）在 1945 年前不主動反攻日軍佔領區
+  if (A.atWar('JAP', 'CHI')) { A.limit('JAP', 'CHI', CHINA_OCC, []); A.S.lim[pairKeyOf('JAP', 'CHI')].nr = ['CHI']; }
+  if (A.atWar('MAN', 'CHI')) { A.limit('MAN', 'CHI', CHINA_OCC.slice(0, 7), []); A.S.lim[pairKeyOf('MAN', 'CHI')].nr = ['CHI']; }
+  if (A.atWar('JAP', 'PRC')) A.limit('JAP', 'PRC', [], []);
+  if (A.atWar('MAN', 'PRC')) A.limit('MAN', 'PRC', [], []);
+}
+// ---- 國共內戰與西安事變（玩家扮演中華民國時可改寫歷史）
+// 東北軍譁變：西北的部分國軍部隊投向中共
+function neMutiny(A, n) {
+  const S = A.S;
+  const near = S.units.filter(u => u.c === 'CHI' && !u.dead && isLandUnit(u) && u.n < R && ['chi_xian', 'chi_lanzhou', 'chi_ningxia', 'chi_taiyuan', 'prc_yanan'].includes(nodes[u.n].id));
+  const pool = near.length ? near : S.units.filter(u => u.c === 'CHI' && !u.dead && isLandUnit(u));
+  for (const u of pool.slice(0, n)) { u.c = 'PRC'; u.path = []; u.auto = false; }
+}
+ev({ id: 'zhang_suspect', date: '1936-10-22', until: '1936-12-10', kind: 'news', title: '少帥的動向', who: 'CHI',
+  cond: A => A.exists('CHI') && A.exists('PRC') && A.atWar('CHI', 'PRC') && !A.S.flags.no_xian && !A.S.flags.zhang_dead,
+  text: '張學良的東北軍在陝北剿共屢戰屢敗，情報顯示少帥與中共秘密接觸、私下停火。委員長要如何處置？',
+  opts: [
+    { t: '親赴西安督戰（歷史）', fx: A => A.news('蔣中正飛抵西安，督促張學良、楊虎城繼續剿共。') },
+    { t: '逮捕並處決張學良', fx: A => { A.flag('no_xian'); A.flag('zhang_dead'); neMutiny(A, 2); A.tempMod('CHI', 'att', 0.08, 365); A.S.tension += 1; A.news('國民政府以「通共」罪名處決張學良，東北軍部分部隊譁變投共，中央軍接管西北剿共。'); } },
+    { t: '將張學良調離西北', fx: A => { A.flag('no_xian'); A.S.C.CHI.pp = Math.max(0, A.S.C.CHI.pp - 30); A.news('張學良被調離西北，改由中央軍胡宗南部接手剿共。'); } },
+  ] });
+ev({ id: 'xian', date: '1936-12-12', until: '1937-06-30', kind: 'news', title: '西安事變', who: 'CHI',
+  cond: A => A.exists('CHI') && A.exists('PRC') && A.atWar('CHI', 'PRC') && !A.S.flags.no_xian && !A.S.flags.zhang_dead,
+  text: '張學良、楊虎城在西安發動兵變，扣押前來督導剿共的蔣委員長，要求停止內戰、一致抗日。',
+  opts: [
+    { t: '接受：停止內戰、一致抗日（歷史）', fx: A => { A.peace('CHI', 'PRC', 'white', true); A.nap('CHI', 'PRC', 10); A.flag('xian_accept'); A.news('蔣中正獲釋返回南京，國共停止內戰，第二次國共合作由此展開。'); } },
+    { t: '拒絕要挾，下令討伐西安', fx: A => { neMutiny(A, 4); A.give(['chi_xian'], 'PRC', { onlyFrom: 'CHI' }); A.units('PRC', { inf: 3 }, 'chi_xian'); A.tempMod('CHI', 'att', -0.1, 180); A.S.C.CHI.pp = Math.max(0, A.S.C.CHI.pp - 40); A.flag('zhang_dead'); A.news('南京下令討伐，西安兵變部隊倒向中共，委員長趁亂脫險；內戰全面擴大。'); } },
+  ] });
+ev({ id: 'zhang_fate', date: '1937-01-04', until: '1937-12-31', kind: 'news', title: '張學良的命運', who: 'CHI',
+  cond: A => A.exists('CHI') && !!A.S.flags.xian_accept && !A.S.flags.zhang_dead,
+  text: '張學良親自護送委員長返回南京後，隨即被軍事法庭判處徒刑。',
+  opts: [
+    { t: '特赦後軟禁（歷史）', fx: A => A.news('張學良獲特赦但遭長期軟禁，此後半個多世紀失去自由。') },
+    { t: '處決張學良', fx: A => { A.flag('zhang_dead'); neMutiny(A, 2); A.S.C.CHI.pp += 20; A.news('張學良遭處決，東北軍將士群情激憤，部分部隊投向中共。'); } },
+  ] });
 
 // ===== 1937 =====
 ev({ id: 'marco_polo', date: '1937-07-07', kind: 'war', title: '盧溝橋事變', who: 'JAP',
   cond: A => A.exists('JAP') && A.exists('CHI') && !A.atWar('JAP', 'CHI'),
   text: '日軍藉口士兵失蹤，在北平西南的盧溝橋與中國守軍爆發衝突。是否全面進攻中國？',
   opts: [
-    { t: '全面侵華（歷史）', fx: A => { A.war('JAP', 'CHI'); if (A.exists('PRC')) A.setWar('JAP', 'PRC'); if (A.exists('MAN')) { A.setWar('MAN', 'CHI'); if (A.exists('PRC')) A.setWar('MAN', 'PRC'); } A.news('中國全面抗戰爆發，國共兩黨共同對日作戰。'); } },
+    { t: '全面侵華（歷史）', fx: A => { A.war('JAP', 'CHI'); if (A.exists('PRC')) A.setWar('JAP', 'PRC'); if (A.exists('MAN')) { A.setWar('MAN', 'CHI'); if (A.exists('PRC')) A.setWar('MAN', 'PRC'); } chinaWarLimits(A); A.news(A.S.flags.no_xian ? '中國全面抗戰爆發，但國共內戰仍未停止。' : '中國全面抗戰爆發，國共兩黨共同對日作戰。'); } },
     { t: '就地停火，避免擴大', fx: A => { A.S.tension = Math.max(0, A.S.tension - 5); A.news('日本政府決定就地解決事變。'); } },
   ] });
 ev({ id: 'shanghai', date: '1937-08-13', kind: 'news', title: '淞滬會戰', cond: A => A.atWar('JAP', 'CHI'), text: '中日兩軍在上海展開激戰，歷時三個月，雙方投入近百萬兵力。' });
@@ -441,6 +483,44 @@ ev({ id: 'iran_invasion', date: '1941-08-25', until: '1942-12-31', kind: 'war', 
   cond: A => A.exists('ENG') && A.exists('SOV') && A.exists('PER') && A.atWar('GER', 'SOV') && !A.atWar('ENG', 'PER'),
   text: '為確保油田與對蘇援助走廊，英國與蘇聯聯合進軍伊朗。',
   opts: [{ t: '進軍（歷史）', fx: A => { A.war('ENG', 'PER', { limited: true }); A.setWar('SOV', 'PER'); A.puppet('ENG', 'PER'); A.puppet('SOV', 'PER'); } }, { t: '取消', fx: () => {} }] });
+// ===== 更多的戰爭（1938–1982）
+ev({ id: 'lake_khasan', date: '1938-07-29', until: '1938-09-30', kind: 'war', title: '張鼓峰事件', who: 'JAP',
+  cond: A => A.exists('JAP') && A.exists('SOV') && !A.atWar('JAP', 'SOV'),
+  text: '日蘇兩軍在朝鮮、滿洲與蘇聯交界的哈桑湖（張鼓峰）爆發激戰。是否擴大衝突？',
+  opts: [{ t: '試探蘇軍（歷史）', fx: A => { A.war('JAP', 'SOV', { limited: true }); A.limit('JAP', 'SOV', [], []); } }, { t: '避免衝突', fx: () => {} }] });
+ev({ id: 'lake_khasan_end', date: '1938-08-11', until: '1939-03-01', kind: 'war', title: '張鼓峰停戰', cond: A => A.atWar('JAP', 'SOV'),
+  text: '日蘇雙方在莫斯科達成停火協議，日軍撤出張鼓峰。', fire: A => A.peace('JAP', 'SOV', 'white') });
+ev({ id: 'franco_thai', date: '1941-01-05', until: '1941-04-30', kind: 'war', title: '法泰戰爭', who: 'SIA',
+  cond: A => A.exists('SIA') && A.exists('VIC') && A.owns('VIC', 'fra_cambodia') && !A.atWar('SIA', 'VIC'),
+  text: '泰國趁法國戰敗之際出兵法屬印度支那，要收復被法國奪走的寮國與柬埔寨失地。是否開戰？',
+  opts: [{ t: '收復失地（歷史）', fx: A => { A.war('SIA', 'VIC', { limited: true }); A.limit('SIA', 'VIC', ['fra_laos_s', 'fra_cambodia'], []); } }, { t: '維持和平', fx: () => {} }] });
+ev({ id: 'franco_thai_end', date: '1941-05-09', until: '1941-12-31', kind: 'war', title: '東京和約', cond: A => A.atWar('SIA', 'VIC'),
+  text: '在日本調停下，維琪法國將寮國與柬埔寨部分領土割讓給泰國。', fire: A => { A.peace('SIA', 'VIC', 'white', true); A.give(['fra_laos_s'], 'SIA', { onlyFrom: 'VIC' }); } });
+ev({ id: 'anglo_iraqi', date: '1941-05-02', until: '1941-07-31', kind: 'war', title: '英伊戰爭', who: 'IRQ',
+  cond: A => A.exists('IRQ') && A.exists('ENG') && A.atWar('ENG', 'GER') && !A.atWar('IRQ', 'ENG') && !A.S.C.IRQ.subj,
+  text: '親軸心國的拉希德·阿里發動政變奪取伊拉克政權，並圍攻英國的哈巴尼亞空軍基地。是否與英國開戰？',
+  opts: [{ t: '攻擊英軍（歷史）', fx: A => { A.war('IRQ', 'ENG', { limited: true }); A.limit('IRQ', 'ENG', [], ['irq_baghdad', 'irq_basra', 'irq_anbar']); if (A.isAI('ENG')) A.invade('ENG', 'irq_basra', { inf: 3, arm: 1 }); } }, { t: '保持中立', fx: () => {} }] });
+ev({ id: 'anglo_iraqi_end', date: '1941-05-31', until: '1941-12-31', kind: 'war', title: '巴格達停戰', cond: A => A.atWar('IRQ', 'ENG'),
+  text: '英軍逼近巴格達，拉希德·阿里出逃，親英的攝政王復位。', fire: A => A.peace('IRQ', 'ENG', 'white') });
+ev({ id: 'syria_lebanon', date: '1941-06-08', until: '1941-09-01', kind: 'war', title: '敘利亞-黎巴嫩戰役', who: 'ENG',
+  cond: A => A.exists('VIC') && A.exists('ENG') && A.owns('VIC', 'fra_damascus') && !A.atWar('ENG', 'VIC'),
+  text: '為防止德國利用敘利亞的機場，英國與自由法國準備進攻維琪法國控制的黎凡特。是否出兵？',
+  opts: [{ t: '出兵黎凡特（歷史）', fx: A => { A.war('ENG', 'VIC', { limited: true }); A.limit('ENG', 'VIC', ['fra_damascus', 'fra_beirut', 'fra_aleppo', 'fra_deirezzor'], []); if (A.isAI('ENG')) A.invade('ENG', 'fra_beirut', { inf: 3 }); } }, { t: '按兵不動', fx: () => {} }] });
+ev({ id: 'syria_lebanon_end', date: '1941-07-14', until: '1941-12-31', kind: 'war', title: '阿卡停戰協定', cond: A => A.atWar('ENG', 'VIC'),
+  text: '維琪法國在黎凡特的部隊投降，敘利亞與黎巴嫩改由自由法國管理。',
+  fire: A => { const held = ['fra_damascus', 'fra_beirut', 'fra_aleppo', 'fra_deirezzor'].filter(id => A.ctrl(id) === 'ENG'); A.peace('ENG', 'VIC', 'white', true); A.give(held, A.exists('FRA') ? 'FRA' : 'ENG', { onlyFrom: 'VIC' }); } });
+ev({ id: 'konfrontasi', date: '1963-09-16', until: '1965-12-31', kind: 'war', title: '印馬對抗', who: 'INS',
+  cond: A => A.exists('INS') && A.exists('MAL') && !A.atWar('INS', 'MAL'),
+  text: '馬來西亞聯邦成立，印尼總統蘇卡諾宣布要「粉碎馬來西亞」，雙方在婆羅洲叢林爆發戰爭。',
+  opts: [{ t: '對抗（歷史）', fx: A => { A.war('INS', 'MAL', { limited: true }); A.limit('INS', 'MAL', ['eng_sarawak', 'eng_northborneo'], []); if (A.exists('ENG')) A.lend('ENG', 'MAL', 0.05); } }, { t: '承認馬來西亞', fx: () => {} }] });
+ev({ id: 'konfrontasi_end', date: '1966-08-11', until: '1967-12-31', kind: 'war', title: '印馬和解', cond: A => A.atWar('INS', 'MAL'),
+  text: '蘇哈托上台後，印尼與馬來西亞簽署和約，結束對抗。', fire: A => A.peace('INS', 'MAL', 'white') });
+ev({ id: 'football_war', date: '1969-07-14', until: '1969-12-31', kind: 'war', title: '足球戰爭', who: 'ELS',
+  cond: A => A.exists('ELS') && A.exists('HON') && !A.atWar('ELS', 'HON'),
+  text: '世界盃資格賽引發的衝突升級，薩爾瓦多軍隊準備越過邊界進攻宏都拉斯。',
+  opts: [{ t: '進攻（歷史）', fx: A => { A.war('ELS', 'HON', { limited: true }); A.limit('ELS', 'HON', [], []); } }, { t: '克制', fx: () => {} }] });
+ev({ id: 'football_war_end', date: '1969-07-20', until: '1970-12-31', kind: 'war', title: '美洲國家組織調停', cond: A => A.atWar('ELS', 'HON'),
+  text: '這場僅持續約一百小時的戰爭造成數千人死亡。在美洲國家組織斡旋下雙方停火。', fire: A => A.peace('ELS', 'HON', 'white') });
 ev({ id: 'lend_lease', date: '1941-03-11', kind: 'war', title: '租借法案', cond: A => A.exists('USA') && A.atWar('GER', 'ENG') && A.exists('ENG'),
   text: '美國國會通過《租借法案》，「民主兵工廠」開始向同盟國提供大量物資。', fire: A => { if (A.isAI('USA')) A.lend('USA', 'ENG', 0.08); } });
 ev({ id: 'lend_lease_sov', date: '1941-10-01', kind: 'war', title: '援蘇租借', cond: A => A.exists('USA') && A.atWar('GER', 'SOV') && A.exists('SOV'),
@@ -478,6 +558,17 @@ ev({ id: 'mexico_war', date: '1942-05-22', until: '1945-01-01', kind: 'war', tit
 ev({ id: 'midway', date: '1942-06-04', kind: 'news', title: '中途島海戰', cond: A => A.atWar('JAP', 'USA'), text: '美軍破譯日軍密碼，在中途島擊沉四艘日本航艦，太平洋戰爭的轉捩點。' });
 ev({ id: 'brazil_war', date: '1942-08-22', until: '1945-01-01', kind: 'war', title: '巴西參戰', who: 'BRA', cond: A => A.exists('BRA') && A.atWar('GER', 'USA') && !A.atWar('BRA', 'GER'),
   text: '德國潛艇擊沉多艘巴西商船，巴西對德義宣戰。', opts: [{ t: '宣戰（歷史）', fx: A => { if (A.S.fac.allies) A.join('BRA', 'allies'); A.war('BRA', 'GER', { solo: true }); if (A.exists('ITA') && A.atWar('ITA', 'USA')) A.setWar('BRA', 'ITA'); } }, { t: '保持中立', fx: () => {} }] });
+// ---- 東線的歷史轉折（嚴冬、反攻與戰略主動權轉移）
+const sovHQ = (A, id) => (A.ctrls('SOV', id) ? id : A.S.C.SOV.cap);
+ev({ id: 'moscow_winter', date: '1941-12-05', until: '1942-03-01', kind: 'war', title: '莫斯科保衛戰', cond: A => A.atWar('GER', 'SOV') && A.exists('SOV'),
+  text: '德軍在嚴冬中兵臨莫斯科城下，卻因補給斷絕與酷寒而寸步難行。朱可夫指揮從西伯利亞調來的生力軍發動反攻。',
+  fire: A => { A.tempMod('GER', 'att', -0.2, 100); A.tempMod('SOV', 'def', 0.15, 100); A.units('SOV', { inf: 6 }, sovHQ(A, 'sov_moscow')); } });
+ev({ id: 'uranus', date: '1942-11-19', until: '1943-03-01', kind: 'war', title: '天王星行動', cond: A => A.atWar('GER', 'SOV') && A.exists('SOV'),
+  text: '紅軍從南北兩翼突破羅馬尼亞軍防線，包圍史達林格勒的德軍第六軍團。',
+  fire: A => { A.tempMod('SOV', 'att', 0.15, 120); A.tempMod('GER', 'att', -0.1, 90); A.units('SOV', { inf: 4, arm: 2 }, sovHQ(A, 'sov_stalingrad')); } });
+ev({ id: 'kursk', date: '1943-07-05', until: '1943-12-31', kind: 'news', title: '庫斯克會戰', cond: A => A.atWar('GER', 'SOV') && A.exists('SOV'),
+  text: '史上規模最大的坦克會戰。德軍「堡壘行動」攻勢失敗，此後東線的戰略主動權完全轉到蘇聯手中。',
+  fire: A => { A.tempMod('SOV', 'def', 0.15, 45); A.tempMod('SOV', 'att', 0.08, 150); } });
 ev({ id: 'stalingrad', date: '1942-08-23', kind: 'news', title: '史達林格勒戰役', cond: A => A.atWar('GER', 'SOV') && A.exists('SOV'), text: '德軍進抵伏爾加河畔的史達林格勒，城市在激烈巷戰中化為廢墟。這場戰役最終成為東線戰爭的轉捩點。' });
 ev({ id: 'torch', date: '1942-11-08', until: '1944-06-01', kind: 'war', title: '火炬行動', cond: A => A.exists('VIC') && A.exists('USA') && A.atWar('GER', 'USA') && A.owns('VIC', 'fra_algiers'),
   text: '美英聯軍在法屬北非登陸。維琪軍隊短暫抵抗後倒戈加入盟軍；德軍隨即佔領維琪法國本土並搶運部隊進入突尼西亞。',
@@ -533,7 +624,7 @@ ev({ id: 'overlord', date: '1944-06-06', until: '1945-06-01', kind: 'war', title
     if (A.isAI('CAN')) A.invade('CAN', 'fra_normandy', { inf: 2 }, 'sea_channel');
     if (A.isAI('USA')) A.units('USA', { ftr: 3, bmb: 2 }, 'eng_london');
   } });
-ev({ id: 'bagration', date: '1944-06-22', kind: 'news', title: '巴格拉季昂行動', cond: A => A.atWar('GER', 'SOV'), text: '紅軍在白俄羅斯發動夏季大攻勢，德軍中央集團軍群幾乎全軍覆沒。' });
+ev({ id: 'bagration', date: '1944-06-22', kind: 'news', title: '巴格拉季昂行動', cond: A => A.atWar('GER', 'SOV'), text: '紅軍在白俄羅斯發動夏季大攻勢，德軍中央集團軍群幾乎全軍覆沒。', fire: A => { A.tempMod('SOV', 'att', 0.15, 120); A.tempMod('GER', 'def', -0.1, 120); } });
 ev({ id: 'dragoon', date: '1944-08-15', until: '1945-03-01', kind: 'war', title: '龍騎兵行動', cond: A => A.exists('GER') && A.atWar('GER', 'USA') && A.ctrl('fra_marseille') && A.atWar(A.ctrl('fra_marseille'), 'USA'),
   text: '美法聯軍在法國南部普羅旺斯海岸登陸。', fire: A => { if (A.isAI('USA')) A.invade('USA', 'fra_marseille', { inf: 3, arm: 1 }, 'sea_westmed'); if (A.isAI('FRA')) A.invade('FRA', 'fra_marseille', { inf: 2 }, 'sea_westmed'); } });
 ev({ id: 'warsaw_uprising', date: '1944-08-01', kind: 'news', title: '華沙起義', cond: A => A.ctrls('GER', 'pol_warsaw') && A.atWar('GER', 'SOV'), text: '波蘭家鄉軍在華沙起義，經六十三天血戰後失敗，華沙幾乎被夷為平地。' });
@@ -558,8 +649,8 @@ ev({ id: 'iwojima', date: '1945-02-19', until: '1945-08-14', kind: 'war', title:
   text: '美國海軍陸戰隊登陸硫磺島，經過五週血戰攻佔全島。', fire: A => { if (A.isAI('USA')) A.invade('USA', 'jap_iwojima', { mar: 3 }); } });
 ev({ id: 'okinawa', date: '1945-04-01', until: '1945-08-14', kind: 'war', title: '沖繩戰役', cond: A => A.exists('JAP') && A.atWar('JAP', 'USA') && A.ctrls('JAP', 'jap_okinawa'),
   text: '美軍登陸沖繩，戰鬥持續近三個月，大量沖繩平民在戰火中喪生。', fire: A => { if (A.isAI('USA')) A.invade('USA', 'jap_okinawa', { inf: 3, mar: 2, arm: 1 }); } });
-ev({ id: 'trinity', date: '1945-07-16', kind: 'war', title: '三位一體核試', cond: A => A.exists('USA') && (A.S.C.USA.tech.nuc || 0) < 1 && (A.S.C.USA.tech.ind || 0) >= 3,
-  text: '曼哈頓計畫在新墨西哥州沙漠成功引爆人類第一枚原子彈。奧本海默引述《薄伽梵歌》：「我成了死神，世界的毀滅者。」', fire: A => { A.tech('USA', 'nuc', 1); A.S.C.USA.nukes += 2; } });
+ev({ id: 'trinity', date: '1945-07-16', kind: 'war', title: '三位一體核試', cond: A => A.exists('USA') && !A.hasTech('USA', 'nuc1') && A.hasTech('USA', 'ind3'),
+  text: '曼哈頓計畫在新墨西哥州沙漠成功引爆人類第一枚原子彈。奧本海默引述《薄伽梵歌》：「我成了死神，世界的毀滅者。」', fire: A => { A.grant('USA', ['nuc0', 'nuc1']); A.S.C.USA.nukes += 2; } });
 ev({ id: 'hiroshima', date: '1945-08-06', until: '1946-12-31', kind: 'war', title: '原子彈', who: 'USA',
   cond: A => A.exists('JAP') && A.atWar('JAP', 'USA') && (A.S.C.USA.nukes || 0) >= 1 && A.ctrls('JAP', 'jap_hiroshima'),
   text: '美國已擁有原子彈。軍方評估登陸日本本土可能造成大量傷亡，杜魯門總統必須做出決定。',
@@ -700,8 +791,8 @@ ev({ id: 'two_germanies', date: '1949-05-23', kind: 'struct', title: '兩個德�
     for (const r of [...w, ...e]) S.core[r] = S.own[r];
     if (A.exists('DDR') && S.fac.comintern) A.join('DDR', 'comintern');
   } });
-ev({ id: 'soviet_bomb', date: '1949-08-29', kind: 'struct', title: '蘇聯第一顆原子彈', cond: A => A.exists('SOV') && (A.S.C.SOV.tech.nuc || 0) < 1,
-  text: '蘇聯在哈薩克的塞米巴拉金斯克試爆第一顆原子彈，美國的核壟斷結束。', fire: A => { A.tech('SOV', 'nuc', 1); A.S.C.SOV.nukes += 1; } });
+ev({ id: 'soviet_bomb', date: '1949-08-29', kind: 'struct', title: '蘇聯第一顆原子彈', cond: A => A.exists('SOV') && !A.hasTech('SOV', 'nuc1'),
+  text: '蘇聯在哈薩克的塞米巴拉金斯克試爆第一顆原子彈，美國的核壟斷結束。', fire: A => { A.grant('SOV', ['nuc0', 'nuc1']); A.S.C.SOV.nukes += 1; } });
 ev({ id: 'prc_founded', date: '1949-10-01', until: '1955-12-31', kind: 'struct', title: '中華人民共和國成立', cond: A => A.exists('PRC') && A.ctrls('PRC', 'chi_beiping'),
   text: '毛澤東在北京天安門城樓宣布中華人民共和國成立。', fire: A => { A.rename('PRC', '中華人民共和國'); A.S.C.PRC.cap = A.rid('chi_beiping'); if (A.S.fac.comintern) A.join('PRC', 'comintern'); } });
 ev({ id: 'roc_taiwan', date: '1949-12-07', until: '1960-12-31', kind: 'struct', title: '中華民國政府遷臺', cond: A => A.exists('CHI') && A.owns('CHI', 'jap_taipei') && !A.ctrls('CHI', 'chi_chongqing') && !A.ctrls('CHI', 'chi_nanjing'),
@@ -957,6 +1048,40 @@ export const EVENT_MAP = Object.fromEntries(E.map(e => [e.id, e]));
 for (const e of E) { e.day = strToDay(e.date); e.untilDay = e.until ? strToDay(e.until) : e.day + 400; }
 
 // ------------------------------------------------------------ 每日事件處理
+// 歷史導引：讓 AI 之間的二戰大致沿著史實發展（蘇聯持續動員、德國後期資源枯竭、日本頑抗到 1945 年）。
+// 真人玩家扮演的國家不會被套用這些修正，玩家依然可以改寫歷史。
+function safeRegion(S, tag) {
+  const C = S.C[tag]; if (!C) return -1;
+  if (C.cap >= 0 && S.ctrl[C.cap] === tag) return C.cap;
+  let best = -1, bv = -1;
+  for (let r = 0; r < R; r++) if (S.ctrl[r] === tag && S.own[r] === tag) { const v = nodes[r].vp + nodes[r].lon / 40; if (v > bv) { bv = v; best = r; } }
+  return best;
+}
+function historyGuide(S, A) {
+  const y = yearOf(S.day);
+  if (y < 1941 || y > 1945) return;
+  // 東線：蘇聯的總動員與後方新編部隊
+  if (A.exists('SOV') && A.exists('GER') && A.atWar('GER', 'SOV') && A.isAI('SOV') && S.day >= strToDay('1941-09-01')) {
+    // 只在德軍推進得比史實更深時才介入（史實上德軍最遠只到莫斯科、列寧格勒與史達林格勒城下）
+    const C = S.C.SOV, lost = C.surrender || 0;
+    const r = safeRegion(S, 'SOV');
+    if (r >= 0 && lost > 0.2) A.units('SOV', { inf: lost > 0.35 ? 4 : 2 }, r);
+    if (lost > 0.3) { A.tempMod('SOV', 'def', 0.1, 30); A.tempMod('SOV', 'att', 0.05, 30); }
+  }
+  // 德國：兩線作戰與盟軍戰略轟炸造成的資源枯竭
+  const deep = ['sov_moscow', 'sov_leningrad', 'sov_stalingrad'].some(id => A.ctrl(id) === 'GER') || (A.exists('SOV') && (S.C.SOV.surrender || 0) > 0.25);
+  if (A.exists('GER') && A.isAI('GER') && A.atWar('GER', 'SOV') && (A.atWar('GER', 'USA') || A.atWar('GER', 'ENG')) && S.day >= strToDay('1943-02-01') && deep) {
+    A.tempMod('GER', 'att', y >= 1944 ? -0.1 : -0.05, 30);
+    if (y >= 1945) A.tempMod('GER', 'def', -0.05, 30);
+  }
+  // 日本：在 1945 年夏天以前不會輕易崩潰
+  if (A.exists('JAP') && A.isAI('JAP') && S.day < strToDay('1945-07-01') && !S.flags.hiroshima) S.C.JAP.capMod = Math.min(S.C.JAP.capMod || 1, 0.35);
+  if (A.exists('JAP') && A.isAI('JAP') && S.day < strToDay('1945-07-01') && (S.C.JAP.surrender || 0) > 0.15 && A.atWar('JAP', 'USA')) {
+    A.tempMod('JAP', 'def', 0.15, 30);
+    const r = safeRegion(S, 'JAP');
+    if (r >= 0) A.units('JAP', { inf: 2 }, r);
+  }
+}
 export function runEvents(S) {
   const A = mkApi(S);
   for (const e of E) {
@@ -969,6 +1094,8 @@ export function runEvents(S) {
     S.fired[e.id] = S.day;
     fireEvent(S, A, e);
   }
+  // 歷史導引（只影響 AI 控制的國家）
+  if (S.set.hist && S.day % 30 === 0) historyGuide(S, A);
   // 去殖民化
   if (S.day % 7 === 0) decolonize(S, A);
   // 國名隨年代變更
@@ -982,21 +1109,28 @@ function fireEvent(S, A, e) {
     if (!alive(S, e.who)) return;
     const C = S.C[e.who];
     if (!C.ai) {
-      pushPrompt(S, e.who, { ev: e.id, title: e.title, text: e.text, opts: e.opts.map(o => ({ t: o.t, act: 'hist' })), def: 0 });
+      pushPrompt(S, e.who, { ev: e.id, kind: 'choice', title: e.title, text: e.text, opts: e.opts.map(o => ({ t: o.t, act: 'hist', d: o.d })), def: 0, tags: inferTags(S, e, []) });
       addNews(S, `【${e.title}】${newsText(e)}`, 'hist', [e.who]);
       return;
     }
     addNews(S, `【${e.title}】${newsText(e)}`, 'hist', [e.who]);
-    try { e.opts[e.ai ?? 0].fx(A); } catch (err) { console.error('事件錯誤', e.id, err); }
+    const o = e.opts[e.ai ?? 0];
+    beginCapture();
+    try { o.fx(A); } catch (err) { console.error('事件錯誤', e.id, err); }
+    worldReact(S, { ...e, decision: `${cname(S, e.who)}的決定：${o.t.replace('（歷史）', '')}` }, endCapture(), null);
     return;
   }
   addNews(S, `【${e.title}】${e.text}`, e.kind === 'news' ? 'hist' : 'hist');
+  beginCapture();
   if (e.fire) { try { e.fire(A); } catch (err) { console.error('事件錯誤', e.id, err); } }
+  worldReact(S, e, endCapture(), null);
 }
 PROMPT_HANDLERS.hist = (S, tag, p, k) => {
   const e = EVENT_MAP[p.ev]; if (!e || !e.opts) return;
   const o = e.opts[k] || e.opts[0];
+  beginCapture();
   try { o.fx(mkApi(S)); } catch (err) { console.error('事件錯誤', e.id, err); }
+  worldReact(S, { ...e, decision: `${cname(S, tag)}的決定：${o.t.replace('（歷史）', '')}` }, endCapture(), tag);
   addNews(S, `${cname(S, tag)}的決定：${o.t}`, 'info', [tag]);
 };
 export function decolonize(S, A, upToDay) {

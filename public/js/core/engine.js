@@ -1,11 +1,14 @@
 // 烽火世紀 — 模擬引擎（瀏覽器與 Node 共用）
 import { WORLD, rDist, regionName } from './world.js';
-import { UNITS, LAND_TYPES, TERRAIN, LAWS, TECH, TECH_ORDER, FOCUS, BUILD, DIFFICULTY } from '../data/rules.js';
+import { UNITS, LAND_TYPES, TERRAIN, LAWS, FOCUS, BUILD, DIFFICULTY, TECHS, TECH_MAP, GROUPS, NUKE_HIST } from '../data/rules.js';
 import { rand, clamp, pairKey, fmtDate, yearOf } from './util.js';
+import { gcDist } from '../data/proj.js';
 
 const R = WORLD.R, NN = WORLD.N, nodes = WORLD.nodes, ADJ = WORLD.adj;
 export const HOOKS = { events: null, ai: null, capitulate: null, onWar: null };
 export const SEA_SPEED = 300;
+const UNIT_REQ = {}; for (const t of TECHS) if (t.e.unlock) UNIT_REQ[t.e.unlock] = t.id;
+export { UNIT_REQ };
 
 // ============================================================ 基本查詢
 export const alive = (S, t) => !!(t && S.C[t] && S.C[t].exists);
@@ -74,7 +77,7 @@ export function newCountry(S, tag, opts = {}) {
     fac: null, lastFac: null, subj: null, cap: def.capital,
     pp: opts.pp ?? 50, ppd: 0, man: 0,
     laws: { con: 1, eco: def.major ? 1 : 0 },
-    tech: Object.assign({ inf: 1, arm: 0, air: 1, nav: 1, ind: 1, nuc: 0 }, opts.tech || {}),
+    techs: (opts.techs || []).slice(), rcat: {},
     res: def.major ? [null, null, null] : [null, null], rsp: 0, nukeSpeed: 0,
     prod: [], focus: { cur: null, prog: 0, done: [] },
     mods: { att: 0, def: 0, armorAtt: 0, air: 0, nav: 0, raid: 0, speed: 0 },
@@ -141,8 +144,9 @@ export function createCountry(S, tag, regions, opts = {}) {
   // 科技：沿用來源國
   const src = opts.from && S.C[opts.from];
   if (revived) {
-    if (src) for (const k of TECH_ORDER) C.tech[k] = Math.max(0, (src.tech[k] || 0) - (k === 'nuc' ? 9 : 1));
-    else { const y = yearOf(S.day); const lv = baseTechLevel(y); for (const k of TECH_ORDER) C.tech[k] = k === 'nuc' ? 0 : Math.max(0, lv - 1); }
+    const y = yearOf(S.day);
+    if (src && src.techs) C.techs = src.techs.filter(id => TECH_MAP[id] && !TECH_MAP[id].special && TECH_MAP[id].year <= y - 2);
+    else C.techs = techsUpTo(y - 3);
   }
   for (const r of regions) transferRegion(S, r, tag, { core: opts.core !== false });
   if (!regions.includes(C.cap) || S.own[C.cap] !== tag) {
@@ -161,11 +165,62 @@ export function createCountry(S, tag, regions, opts = {}) {
   if (opts.subj) C.subj = opts.subj;
   return C;
 }
-export function baseTechLevel(y) { return y < 1938 ? 1 : y < 1940 ? 2 : y < 1942 ? 3 : y < 1944 ? 4 : y < 1946 ? 5 : y < 1955 ? 6 : y < 1965 ? 7 : y < 1975 ? 8 : 9; }
+// ============================================================ 科技
+// 截至某年份的一般科技（不含核武等特殊科技）
+export function techsUpTo(year) { return TECHS.filter(t => !t.special && t.year <= year).map(t => t.id); }
+// 劇本開局：依落後年數給予科技，並依史實年份給予核武科技
+export function grantTechsByYear(S, tag, year, lag, extra = []) {
+  const C = S.C[tag]; if (!C) return;
+  const set = new Set(C.techs || []);
+  for (const id of techsUpTo(year - lag)) set.add(id);
+  for (const id of extra) set.add(id);
+  const nh = NUKE_HIST[tag];
+  if (nh) for (const id in nh) if (nh[id] <= year) set.add(id);
+  C.techs = TECHS.filter(t => set.has(t.id)).map(t => t.id);
+}
+export function grantTech(S, tag, id) {
+  const C = S.C[tag]; if (!C || !TECH_MAP[id]) return false;
+  if (!C.techs) C.techs = [];
+  if (C.techs.includes(id)) return false;
+  C.techs.push(id);
+  return true;
+}
+const TB_CACHE = new WeakMap();
+const ZERO_U = Object.freeze({});
+const TB_KEYS = ['ic', 'rsp', 'fcost', 'escort', 'aa', 'amph', 'medic', 'supply'];
+// 科技加成（依已完成科技計算並快取）
+export function techBonus(C) {
+  const list = (C && C.techs) || [];
+  const key = list.length + '|' + (list[list.length - 1] || '');
+  const c = TB_CACHE.get(C);
+  if (c && c.key === key && c.list === list) return c.tb;
+  const tb = { u: {}, flags: new Set(), has: new Set(list), cat: {} };
+  for (const k of TB_KEYS) tb[k] = 0;
+  for (const id of list) {
+    const T = TECH_MAP[id]; if (!T) continue;
+    tb.cat[T.cat] = (tb.cat[T.cat] || 0) + 1;
+    const e = T.e;
+    for (const k of TB_KEYS) if (e[k]) tb[k] += e[k];
+    if (e.flag) tb.flags.add(e.flag);
+    if (e.u) for (const g in e.u) for (const t of (GROUPS[g] || [g])) { const o = tb.u[t] || (tb.u[t] = {}); for (const st in e.u[g]) o[st] = (o[st] || 0) + e.u[g][st]; }
+  }
+  if (C) TB_CACHE.set(C, { key, list, tb });
+  return tb;
+}
+export function hasTech(C, id) { return !!C && techBonus(C).has.has(id); }
+export function hasFlag(C, f) { return !!C && techBonus(C).flags.has(f); }
+function ub(S, u) { const C = S.C[u.c]; return (C && techBonus(C).u[u.t]) || ZERO_U; }
+export function unitBonus(S, tag, t) { const C = S.C[tag]; return (C && techBonus(C).u[t]) || ZERO_U; }
+function upkeepOf(S, u) {
+  const b = ub(S, u);
+  return UNITS[u.t].up * (1 + 0.3 * ((b.att || 0) + (b.def || 0) + (b.air || 0) + (b.bomb || 0) + (b.strat || 0) + (b.naval || 0)) / 2);
+}
 
 export function killCountry(S, tag, by) {
   const C = S.C[tag]; if (!C || !C.exists) return;
   for (let r = 0; r < R; r++) if (S.own[r] === tag) { S.own[r] = by || S.ctrl[r]; if (S.ctrl[r] === tag) S.ctrl[r] = S.own[r]; }
+  // 滅亡國家佔領中的他國領土：歸還原主（原主也不存在時交給接收者）
+  for (let r = 0; r < R; r++) if (S.ctrl[r] === tag) S.ctrl[r] = S.own[r] && S.own[r] !== tag && alive(S, S.own[r]) ? S.own[r] : (by || S.own[r]);
   for (const u of S.units) if (u.c === tag) killUnit(S, u);
   endAllWars(S, tag);
   if (C.fac) { C.lastFac = C.fac; leaveFaction(S, tag, true); }
@@ -422,6 +477,14 @@ function capitulate(S, tag) {
 }
 
 // ============================================================ 單位
+// 事件／國策給予的部隊：依科技升級為較新的同類兵種
+export function bestUnitType(S, tag, type) {
+  const C = S.C[tag]; if (!C) return type;
+  const ok = (x) => !UNIT_REQ[x] || hasTech(C, UNIT_REQ[x]);
+  if (type === 'arm' || type === 'ltk') return ok('mbt') ? 'mbt' : ok('arm') || type === 'arm' ? 'arm' : 'ltk';
+  if (type === 'ftr') return ok('jet') ? 'jet' : 'ftr';
+  return type;
+}
 export function spawnUnit(S, tag, t, at, opts = {}) {
   const T = UNITS[t];
   let n = at;
@@ -434,31 +497,33 @@ export function spawnUnit(S, tag, t, at, opts = {}) {
   S.units.push(u);
   return u;
 }
-export function maxOrg(S, u) { return UNITS[u.t].org || 60; }
-function techMul(S, u) { const C = S.C[u.c]; return 1 + 0.1 * (C.tech[UNITS[u.t].tech] || 0); }
+export function maxOrg(S, u) { return (UNITS[u.t].org || 60) * (1 + (ub(S, u).org || 0)); }
 export function unitAttack(S, u, terr) {
   const T = UNITS[u.t], C = S.C[u.c];
-  let a = (T.att || 0) * techMul(S, u) * (1 + C.mods.att + (T.armor ? C.mods.armorAtt : 0));
+  let a = (T.att || 0) * (1 + (ub(S, u).att || 0) + C.mods.att + (T.armor ? C.mods.armorAtt : 0));
   if (T.armor) a *= TERRAIN[terr].arm;
   return a * diffMod(S, u.c);
 }
 export function unitDefense(S, u) {
   const T = UNITS[u.t], C = S.C[u.c];
-  return (T.def || 0) * techMul(S, u) * (1 + C.mods.def) * diffMod(S, u.c);
+  return (T.def || 0) * (1 + (ub(S, u).def || 0) + C.mods.def) * diffMod(S, u.c);
 }
-export function unitEff(S, u) { return (u.hp / 100) * (0.3 + 0.7 * u.org / maxOrg(S, u)) * (u.sup ? 1 : 0.6); }
+export function unitEff(S, u) { return (u.hp / 100) * (0.3 + 0.7 * u.org / maxOrg(S, u)) * (u.sup ? 1 : 0.6 + Math.min(0.2, techBonus(S.C[u.c]).supply)); }
 export function unitSpeed(S, u, dest) {
   const T = UNITS[u.t], C = S.C[u.c];
   if (T.domain === 'sea') return T.speed;
   if (dest >= R || u.n >= R) return SEA_SPEED;
-  let sp = T.speed * (1 + C.mods.speed + (T.armor ? 0.03 * (C.tech.arm || 0) : 0));
+  let sp = T.speed * (1 + C.mods.speed + (ub(S, u).speed || 0));
   sp *= TERRAIN[nodes[dest].terrain].move;
   if (!u.sup) sp *= 0.7;
   return sp;
 }
-export function airPower(S, u) { const T = UNITS[u.t], C = S.C[u.c]; return T.air * techMul(S, u) * (1 + C.mods.air) * u.hp / 100; }
-export function airRange(S, u) { return UNITS[u.t].range * (1 + 0.1 * (S.C[u.c].tech.air || 0)); }
-export function navPower(S, u, def) { const T = UNITS[u.t], C = S.C[u.c]; return (def ? T.def : T.att) * techMul(S, u) * (1 + C.mods.nav) * u.hp / 100; }
+export function airPower(S, u) { const T = UNITS[u.t], C = S.C[u.c]; return (T.air || 0) * (1 + (ub(S, u).air || 0) + C.mods.air) * u.hp / 100; }
+export function bombPower(S, u) { const T = UNITS[u.t], C = S.C[u.c]; return (T.bomb || 0) * (1 + (ub(S, u).bomb || 0) + C.mods.air * 0.5) * u.hp / 100; }
+export function stratPower(S, u) { const T = UNITS[u.t]; return (T.strat || 0) * (1 + (ub(S, u).strat || 0)) * u.hp / 100; }
+export function navalStrike(S, u) { const T = UNITS[u.t], C = S.C[u.c]; return (T.naval || 0) * (1 + (ub(S, u).naval || 0) + C.mods.nav * 0.5) * u.hp / 100; }
+export function airRange(S, u) { return (UNITS[u.t].range || 0) * (1 + (ub(S, u).range || 0)); }
+export function navPower(S, u, def) { const T = UNITS[u.t], C = S.C[u.c], b = ub(S, u); return (def ? T.def : T.att) * (1 + ((def ? b.def : b.att) || 0) + C.mods.nav) * u.hp / 100; }
 function edgeOf(a, b) { for (const e of ADJ[a]) if (e.to === b) return e; return null; }
 export function edgeDist(a, b) { const e = edgeOf(a, b); return e ? e.d : 9999; }
 
@@ -483,13 +548,25 @@ class MinHeap {
   get size() { return this.k.length; }
 }
 // 陸軍可用的節點與代價
+// 有限戰爭：AI 只能進入約定的目標地區（或收復失土）；對真人玩家則不設限
+export function limBlocks(S, tag, r) {
+  const c = S.ctrl[r]; if (!c || !S.lim) return false;
+  const lim = S.lim[pairKey(tag, c)]; if (!lim) return false;
+  const K = S.C[c]; if (K && !K.ai && S.set.aiVsHuman !== false) return false;
+  if ((lim[tag] || []).includes(r)) return false;
+  if (lim.nr && lim.nr.includes(tag)) return true;
+  const o = S.own[r], co = S.core[r];
+  if (o === tag || co === tag || (o && friendly(S, tag, o)) || (co && alive(S, co) && friendly(S, tag, co))) return false;
+  return true;
+}
 export function pathCostFn(S, tag, kind) {
   if (kind === 'sea') return (from, to, e) => (to < R ? Infinity : e.d);
+  const isAI = !!(S.C[tag] && S.C[tag].ai);
   return (from, to, e) => {
     if (to < R) {
       const c = S.ctrl[to];
       if (c === tag || allied(S, tag, c)) return e.d / TERRAIN[nodes[to].terrain].move * (e.t === 1 ? 1.5 : 1);
-      if (atWar(S, tag, c)) return e.d / TERRAIN[nodes[to].terrain].move + 400;
+      if (atWar(S, tag, c)) return isAI && limBlocks(S, tag, to) ? Infinity : e.d / TERRAIN[nodes[to].terrain].move + 400;
       return Infinity;
     }
     // 海上運輸
@@ -594,40 +671,70 @@ export function lawAllowed(S, tag, law, lvl) {
   }
   return null;
 }
-export function researchCost(S, tag, cat) {
-  const C = S.C[tag], lv = C.tech[cat] || 0;
-  const L = TECH[cat].levels[lv]; if (!L) return Infinity;
-  const ahead = L[0] - (yearOf(S.day) + (S.day % 365) / 365);
-  let mul = ahead > 0 ? 1 + 0.9 * ahead : Math.max(0.35, 1 + 0.12 * ahead);
-  const base = cat === 'nuc' ? 600 : 110;
-  if (cat === 'nuc' && ahead > 0) mul = 1 + 2.2 * ahead;
-  return base * mul;
+export function researchCost(S, tag, id) {
+  const T = TECH_MAP[id]; if (!T) return Infinity;
+  const ahead = T.year - (yearOf(S.day) + (S.day % 365) / 365);
+  let mul = ahead > 0 ? 1 + 1.0 * ahead : Math.max(0.55, 1 + 0.09 * ahead);
+  if (T.special && ahead > 0) mul = 1 + 2.2 * ahead;
+  return (T.cost || 100) * mul;
 }
-export function canResearch(S, tag, cat) {
-  const C = S.C[tag], T = TECH[cat];
-  if ((C.tech[cat] || 0) >= T.levels.length) return '已全部完成';
-  if (T.req) {
-    if ((C.tech.ind || 0) < T.req.ind) return `需要工業科技 ${T.req.ind} 級`;
-    if ((C.indTotal || 0) < T.req.minInd) return `需要國家工業 ${T.req.minInd} 以上`;
-  }
-  for (const s of C.res) if (s && s.cat === cat) return '研究中';
+export function canResearch(S, tag, id) {
+  const C = S.C[tag], T = TECH_MAP[id];
+  if (!T) return '無此科技';
+  const tb = techBonus(C);
+  if (tb.has.has(id)) return '已完成';
+  for (const q of T.req) if (!tb.has.has(q)) return `需要先研究「${TECH_MAP[q] ? TECH_MAP[q].name : q}」`;
+  if (T.minInd && (C.indTotal || 0) < T.minInd) return `需要國家工業 ${T.minInd} 以上`;
+  for (const s of C.res) if (s && s.id === id) return '研究中';
   return null;
 }
-export function focusList(S, tag) {
-  const C = S.C[tag], y = yearOf(S.day);
-  let list = FOCUS[tag] || FOCUS.GENERIC;
-  if (y >= 1946 && FOCUS[tag + '_COLD']) list = FOCUS[tag + '_COLD'].concat(list);
-  const done = new Set(C.focus.done);
-  if (list !== FOCUS.GENERIC && list.every(f => done.has(f.id) || (f.minYear && f.minYear > y + 10))) list = list.concat(FOCUS.GENERIC);
-  return list;
+export function researchSpeed(S, tag, id) {
+  const C = S.C[tag], T = TECH_MAP[id]; if (!T) return 1;
+  // 工業規模小的國家研究較慢
+  const dev = 0.55 + 0.45 * Math.min(1, (C.indTotal || 0) / 50);
+  return (1 + (C.rsp || 0) + techBonus(C).rsp + ((C.rcat && C.rcat[T.cat]) || 0)) * dev * (T.special ? 1 + (C.nukeSpeed || 0) : 1) * (C.ai ? 1 : 1.05);
 }
+// 可用的國策樹（分頁）：本國二戰國策、冷戰國策、通用國策
+const FT_CACHE = new WeakMap();
+export function focusTrees(S, tag) {
+  const C = S.C[tag]; if (!C) return [];
+  const y = yearOf(S.day);
+  const key = y + '|' + C.focus.done.length;
+  const c = FT_CACHE.get(C);
+  if (c && c.key === key && c.tag === tag) return c.out;
+  const out = [];
+  const nat = FOCUS[tag], cold = FOCUS[tag + '_COLD'];
+  const done = new Set(C.focus.done);
+  if (nat) out.push({ key: tag, name: nat.name, list: nat.list });
+  if (cold && (y >= 1946 || !nat)) out.push({ key: tag + '_COLD', name: cold.name, list: cold.list });
+  const exhausted = (t) => t.list.every(f => done.has(f.id) || (f.excl && f.excl.some(q => done.has(q))) || (f.alt && S.set.hist && C.ai) || (f.maxYear && y > f.maxYear) || (f.minYear && f.minYear > y + 8));
+  if (!nat && !cold) out.push({ key: 'GENERIC', name: FOCUS.GENERIC.name, list: FOCUS.GENERIC.list });
+  else if (out.every(exhausted) || C.focus.done.some(id => id.startsWith('n_'))) out.push({ key: 'GENERIC', name: FOCUS.GENERIC.name, list: FOCUS.GENERIC.list });
+  if (y >= 1946 && !cold) out.push({ key: 'GENERIC_COLD', name: FOCUS.GENERIC_COLD.name, list: FOCUS.GENERIC_COLD.list });
+  FT_CACHE.set(C, { key, tag, out });
+  return out;
+}
+export function focusList(S, tag) { return focusTrees(S, tag).flatMap(t => t.list); }
+export function focusDays(S, tag, f) { return f.days; }
 export function focusAvailable(S, tag, f) {
-  const C = S.C[tag], done = new Set(C.focus.done);
-  if (done.has(f.id)) return '已完成';
-  if (f.req.some(q => !done.has(q))) return '需要先完成前置國策';
-  if (f.excl && f.excl.some(q => done.has(q))) return '與已選國策互斥';
-  if (f.minYear && yearOf(S.day) < f.minYear) return `${f.minYear} 年後可用`;
+  const C = S.C[tag], done = C.focus.done;
+  if (done.includes(f.id)) return '已完成';
+  if (f.excl && f.excl.some(q => done.includes(q) || C.focus.cur === q)) return '與已選國策互斥';
+  if (f.req.some(q => !done.includes(q))) return '需要先完成前置國策';
+  if (f.reqAny && !f.reqAny.some(q => done.includes(q))) return '需要先完成任一前置國策';
+  const y = yearOf(S.day);
+  if (f.minYear && y < f.minYear) return `${f.minYear} 年後可用`;
+  if (f.maxYear && y > f.maxYear) return `已超過時限（${f.maxYear} 年）`;
   if (f.coastal && !nodes[C.cap].coastal && !regionsOf(S, tag).some(r => nodes[r].coastal)) return '需要海岸線';
+  if (f.eff.war) { const w = f.eff.war; if (!alive(S, w)) return '對象已不存在'; if (atWar(S, tag, w)) return null; if (friendly(S, tag, w)) return '對象是盟友'; }
+  if (f.eff.joinFac && !factionFor(S, f.eff.joinFac)) return '目前沒有這個陣營';
+  return null;
+}
+// 依意識形態尋找可加入的陣營
+function factionFor(S, ideo) {
+  const pref = { dem: ['allies', 'nato'], fas: ['axis'], com: ['comintern', 'warsaw'] }[ideo] || [ideo];
+  for (const id of pref) if (S.fac[id] && S.fac[id].members && S.fac[id].members.length) return id;
+  for (const id in S.fac) { const F = S.fac[id]; if (F && S.C[F.leader] && S.C[F.leader].ideo === ideo) return id; }
   return null;
 }
 function applyFocus(S, tag, f) {
@@ -639,12 +746,34 @@ function applyFocus(S, tag, f) {
   if (e.rsp) C.rsp += e.rsp;
   if (e.nukeSpeed) C.nukeSpeed += e.nukeSpeed;
   for (const k of ['att', 'def', 'armorAtt', 'air', 'nav', 'raid', 'speed']) if (e[k]) C.mods[k] += e[k];
-  if (e.man) C.man += e.man;
+  if (e.man) C.man = Math.max(0, C.man + e.man);
   if (e.nukes) C.nukes += e.nukes;
-  if (e.tech) for (const k in e.tech) C.tech[k] = Math.min(TECH[k].levels.length, (C.tech[k] || 0) + e.tech[k]);
-  if (e.units) for (const t in e.units) for (let i = 0; i < e.units[t]; i++) spawnUnit(S, tag, t, deployRegion(S, tag, t), { auto: !C.ai && C.autoDeploy });
+  if (e.pp && C.pp < 0) C.pp = 0;
+  if (e.ind < 0) removeIndustry(S, tag, -e.ind);
+  if (e.ideo) C.ideo = e.ideo;
+  if (e.tension) S.tension = clamp(S.tension + e.tension, 0, 100);
+  if (e.flag) S.flags[e.flag] = S.day;
+  if (e.leaveFac && C.fac) leaveFaction(S, tag);
+  if (e.joinFac) { const fid = factionFor(S, e.joinFac); if (fid && C.fac !== fid) { if (C.fac) leaveFaction(S, tag); joinFaction(S, tag, fid); addNews(S, `${C.name}加入了${S.fac[fid].name}。`, 'diplo', [tag]); } }
+  if (e.guar) for (const g of e.guar) if (alive(S, g) && g !== tag && !C.guar.includes(g)) C.guar.push(g);
+  if (e.nap) for (const o of e.nap) if (alive(S, o) && !atWar(S, tag, o)) { C.nap[o] = S.day + 3650; S.C[o].nap[tag] = S.day + 3650; }
+  if (e.coastFort) { const cs = []; for (let r = 0; r < R; r++) if (S.own[r] === tag && S.ctrl[r] === tag && nodes[r].coastal) cs.push(r); cs.sort((a, b) => nodes[b].vp + S.ind[b] - nodes[a].vp - S.ind[a]); for (const r of cs.slice(0, 6)) S.fort[r] = Math.min(5, S.fort[r] + e.coastFort); }
+  if (e.war && alive(S, e.war) && !atWar(S, tag, e.war)) {
+    if (C.nap[e.war]) { delete C.nap[e.war]; if (S.C[e.war]) delete S.C[e.war].nap[tag]; }
+    declareWar(S, tag, e.war);
+    if (e.civil) S.flags['civil:' + pairKey(tag, e.war)] = true;
+  }
+  if (e.techs) for (const id of e.techs) grantTech(S, tag, id);
+  if (e.rcat) { if (!C.rcat) C.rcat = {}; for (const k in e.rcat) C.rcat[k] = (C.rcat[k] || 0) + e.rcat[k]; }
+  if (e.units) for (const t0 in e.units) { const t = bestUnitType(S, tag, t0); for (let i = 0; i < e.units[t0]; i++) spawnUnit(S, tag, t, deployRegion(S, tag, t), { auto: !C.ai && C.autoDeploy && UNITS[t].domain === 'land' }); }
   if (e.fort) addBorderForts(S, tag, e.fort);
   if (e.fortAt) for (const id of e.fortAt) { const r = WORLD.idx.get(id); if (r !== undefined && S.ctrl[r] === tag) S.fort[r] = Math.min(5, S.fort[r] + e.fortLvl); }
+}
+function removeIndustry(S, tag, n) {
+  const regs = [];
+  for (let r = 0; r < R; r++) if (S.own[r] === tag && S.ind[r] > 0) regs.push(r);
+  regs.sort((a, b) => S.ind[b] - S.ind[a]);
+  for (let i = 0; n > 0 && regs.length && i < 200; i++) { const r = regs[i % regs.length]; if (S.ind[r] > 0) { S.ind[r]--; n--; } }
 }
 export function addIndustry(S, tag, n) {
   const regs = [];
@@ -686,16 +815,21 @@ export function deployRegion(S, tag, t) {
 export function canBuild(S, tag, type) {
   const C = S.C[tag];
   if (UNITS[type]) {
-    const req = UNITS[type].req;
-    if (req) for (const k in req) if ((C.tech[k] || 0) < req[k]) return `需要${TECH[k].name}科技 ${req[k]} 級`;
+    const req = UNIT_REQ[type];
+    if (req && !hasTech(C, req)) return `需要研究「${TECH_MAP[req].name}」`;
     if (UNITS[type].domain === 'sea' && deployRegion(S, tag, type) === undefined) return '沒有可用的港口';
     return null;
   }
-  if (type === 'nuke') return (C.tech.nuc || 0) >= 1 ? null : '需要核子科技（原子彈）';
+  if (type === 'nuke') return hasFlag(C, 'nuke') ? null : '需要研究「原子彈」';
   if (type === 'factory' || type === 'fort') return null;
   return '未知項目';
 }
-export function itemCost(type, C) { if (UNITS[type]) return UNITS[type].cost; if (type === 'factory') return BUILD.factory.cost + 28 * ((C && C.indTotal) || 0); return BUILD[type].cost; }
+export function itemCost(type, C) {
+  if (UNITS[type]) return UNITS[type].cost;
+  if (type === 'factory') return (BUILD.factory.cost + 28 * ((C && C.indTotal) || 0)) * (1 - Math.min(0.4, C ? techBonus(C).fcost : 0));
+  if (type === 'nuke' && C && hasFlag(C, 'mirv')) return BUILD.nuke.cost * 0.6;
+  return BUILD[type].cost;
+}
 
 // 重新計算產能等顯示用數值（不推進時間）
 export function recalc(S) {
@@ -704,10 +838,10 @@ export function recalc(S) {
     const C = S.C[t], n = nat[t];
     const law = LAWS.eco.levels[C.laws.eco].prod * LAWS.con.levels[C.laws.con].prod;
     C.indTotal = n.ind; C.vpOwned = n.vpOwned; C.vpHeld = n.vpHeld; C.popCore = n.popCore;
-    C.ic = C.icBase = n.ind * law * (1 + 0.08 * (C.tech.ind || 0)) * (1 - (C.convoyLoss || 0)) * diffMod(S, t);
+    C.ic = C.icBase = n.ind * law * (1 + techBonus(C).ic) * (1 - (C.convoyLoss || 0)) * diffMod(S, t);
     C.upkeep = 0;
   }
-  for (const u of S.units) { const C = S.C[u.c]; if (C && !u.dead) C.upkeep += UNITS[u.t].up * (1 + 0.06 * (C.tech[UNITS[u.t].tech] || 0)); }
+  for (const u of S.units) { const C = S.C[u.c]; if (C && !u.dead) C.upkeep += upkeepOf(S, u); }
   for (const t in nat) S.C[t].icNet = Math.max(0, S.C[t].ic - S.C[t].upkeep);
 }
 function economy(S, nat) {
@@ -717,11 +851,11 @@ function economy(S, nat) {
     const C = S.C[t], n = nat[t];
     const law = LAWS.eco.levels[C.laws.eco].prod * LAWS.con.levels[C.laws.con].prod;
     C.indTotal = n.ind;
-    C.icBase = n.ind * law * (1 + 0.08 * (C.tech.ind || 0)) * (1 - C.convoyLoss) * diffMod(S, t);
+    C.icBase = n.ind * law * (1 + techBonus(C).ic) * (1 - C.convoyLoss) * diffMod(S, t);
     C.ic = C.icBase;
     C.upkeep = 0;
   }
-  for (const u of S.units) { if (u.dead) continue; const C = S.C[u.c]; if (C && C.upkeep !== undefined) C.upkeep += UNITS[u.t].up * (1 + 0.06 * (C.tech[UNITS[u.t].tech] || 0)); }
+  for (const u of S.units) { if (u.dead) continue; const C = S.C[u.c]; if (C && C.upkeep !== undefined) C.upkeep += upkeepOf(S, u); }
   for (const k in S.lend) {
     const [a, b] = k.split('>');
     if (!alive(S, a) || !alive(S, b)) { delete S.lend[k]; continue; }
@@ -741,13 +875,15 @@ function economy(S, nat) {
     // 研究
     for (let i = 0; i < C.res.length; i++) {
       const s = C.res[i]; if (!s) continue;
-      s.prog += (1 + C.rsp) * (s.cat === 'nuc' ? 1 + C.nukeSpeed : 1) * (C.ai ? 1 : 1.05);
-      const cost = researchCost(S, t, s.cat);
+      const T = TECH_MAP[s.id];
+      if (!T || hasTech(C, s.id)) { C.res[i] = null; continue; }
+      s.prog += researchSpeed(S, t, s.id);
+      const cost = researchCost(S, t, s.id);
       if (s.prog >= cost) {
-        C.tech[s.cat] = (C.tech[s.cat] || 0) + 1;
-        const L = TECH[s.cat].levels[C.tech[s.cat] - 1];
-        if (!C.ai) addNews(S, `研究完成：${L[1]}`, 'tech', [t]);
-        if (s.cat === 'nuc' && C.tech.nuc === 1) { addNews(S, `${C.name}成功試爆原子彈，核子時代來臨。`, 'major', [t]); S.tension = clamp(S.tension + 5, 0, 100); }
+        grantTech(S, t, s.id);
+        if (!C.ai) addNews(S, `研究完成：${T.name}`, 'tech', [t]);
+        if (s.id === 'nuc1') { addNews(S, `${C.name}成功試爆原子彈，核子時代來臨。`, 'major', [t]); S.tension = clamp(S.tension + 5, 0, 100); }
+        else if (T.e.unlock && !C.ai) addNews(S, `新兵種可以生產了：${UNITS[T.e.unlock].name}`, 'tech', [t]);
         C.res[i] = null;
       }
     }
@@ -896,6 +1032,7 @@ function collectBattles(S, idx) {
 function airPhase(S, battles) {
   const airUnits = S.units.filter(u => !u.dead && isAir(u) && u.n < R);
   for (const a of airUnits) { a._loss = 0; a._busy = false; }
+  const isBomber = (a) => UNITS[a.t].cls === 'bmb';
   for (const b of battles) {
     let fa = 0, fd = 0, ba = 0, bd = 0;
     const inA = [], inD = [];
@@ -905,24 +1042,26 @@ function airPhase(S, battles) {
       const sideA = allied(S, a.c, b.ac) && atWar(S, a.c, b.dc);
       const sideD = !sideA && allied(S, a.c, b.dc) && atWar(S, a.c, b.ac);
       if (!sideA && !sideD) continue;
-      const p = airPower(S, a);
-      if (UNITS[a.t].bomb) { if (sideA) ba += UNITS[a.t].bomb * techMul(S, a) * a.hp / 100; else bd += UNITS[a.t].bomb * techMul(S, a) * a.hp / 100; }
-      if (sideA) { fa += p; inA.push(a); } else { fd += p; inD.push(a); }
+      const p = airPower(S, a), bp = bombPower(S, a);
+      if (sideA) { fa += p; ba += bp; inA.push(a); } else { fd += p; bd += bp; inD.push(a); }
       a._busy = true;
     }
+    // 防空火力削弱敵機
+    const aaA = Math.min(0.5, techBonus(S.C[b.ac]).aa), aaD = Math.min(0.5, techBonus(S.C[b.dc]).aa);
+    fa *= 1 - aaD * 0.5; fd *= 1 - aaA * 0.5; ba *= 1 - aaD; bd *= 1 - aaA;
     const sup = fa + fd > 0 ? fa / (fa + fd) : 0.5;
     b.airA = fa + fd > 0 ? 0.88 + 0.27 * sup : 1;
     b.airD = fa + fd > 0 ? 0.88 + 0.27 * (1 - sup) : 1;
-    b.bombA = ba * sup; b.bombD = bd * (1 - sup);
+    b.bombA = ba * (0.35 + 0.65 * sup); b.bombD = bd * (0.35 + 0.65 * (1 - sup));
     b.sup = sup; b.fa = fa; b.fd = fd;
     const lossA = Math.min(4, 3 * fd / (fa + fd + 1)), lossD = Math.min(4, 3 * fa / (fa + fd + 1));
-    for (const a of inA) a._loss = Math.max(a._loss, lossA * (UNITS[a.t].bomb ? 1.3 : 1));
-    for (const a of inD) a._loss = Math.max(a._loss, lossD * (UNITS[a.t].bomb ? 1.3 : 1));
+    for (const a of inA) a._loss = Math.max(a._loss, lossA * (isBomber(a) ? 1.3 : 1) + (isBomber(a) ? aaD * 1.5 : 0));
+    for (const a of inD) a._loss = Math.max(a._loss, lossD * (isBomber(a) ? 1.3 : 1) + (isBomber(a) ? aaA * 1.5 : 0));
   }
   // 戰略轟炸（每 2 天）
   if (S.day % 2 === 0) {
     for (const a of airUnits) {
-      if (a._busy || !UNITS[a.t].bomb || a.hp < 30) continue;
+      if (a._busy || !UNITS[a.t].strat || a.hp < 30) continue;
       const en = enemySet(S, a.c); if (!en.size) continue;
       const rng = airRange(S, a);
       let best = -1, bv = 0;
@@ -933,16 +1072,62 @@ function airPhase(S, battles) {
       }
       if (best < 0) continue;
       let fdef = 0; const icp = [];
-      for (const f of airUnits) if (UNITS[f.t].air >= 5 && atWar(S, f.c, a.c) && rDist(f.n, best) <= airRange(S, f)) { fdef += airPower(S, f); icp.push(f); }
-      const pw = UNITS[a.t].bomb * techMul(S, a) * a.hp / 100;
+      for (const f of airUnits) if (UNITS[f.t].cls === 'ftr' && atWar(S, f.c, a.c) && rDist(f.n, best) <= airRange(S, f)) { fdef += airPower(S, f); icp.push(f); }
+      const aa = Math.min(0.5, techBonus(S.C[S.ctrl[best]] || null).aa);
+      const pw = stratPower(S, a) * (1 - aa * 0.6);
       S.dmg[best] = Math.min(0.6, S.dmg[best] + 0.006 * pw / 10 * (fdef > 0 ? 0.5 : 1));
-      a._loss = Math.max(a._loss, Math.min(5, 4 * fdef / (fdef + pw + 5)));
+      a._busy = true;
+      a._loss = Math.max(a._loss, Math.min(5, 4 * fdef / (fdef + pw + 5)) + aa * 1.5);
       for (const f of icp) f._loss = Math.max(f._loss, 0.5);
     }
   }
+  navalAir(S, airUnits);
   for (const a of airUnits) {
     if (a._loss > 0) { a.hp -= a._loss; if (a.hp <= 0) { killUnit(S, a); S.C[a.c].stats.lost++; } }
     else if (a.hp < 100 && S.C[a.c].man > 1) { a.hp = Math.min(100, a.hp + 2); S.C[a.c].man -= UNITS[a.t].man * 0.02; }
+  }
+}
+// 海軍航空：海軍轟炸機（陸基）與航艦艦載機攻擊航程內的敵艦
+const SEA_D = new Map();
+function landSeaDist(a, z) {
+  const k = a * 4096 + z;
+  let d = SEA_D.get(k);
+  if (d === undefined) { d = gcDist(nodes[a].lon, nodes[a].lat, nodes[z].lon, nodes[z].lat); SEA_D.set(k, d); }
+  return d;
+}
+function navalAir(S, airUnits) {
+  const fleets = S.units.filter(u => !u.dead && isNaval(u) && u.n >= R);
+  if (!fleets.length) return;
+  const byZone = new Map();
+  for (const f of fleets) { let a = byZone.get(f.n); if (!a) byZone.set(f.n, a = []); a.push(f); }
+  const strikers = [];
+  for (const a of airUnits) if (!a._busy && UNITS[a.t].naval && a.hp >= 30) strikers.push(a);
+  for (const f of fleets) if (f.t === 'car' && f.hp >= 30) strikers.push(f);
+  for (const a of strikers) {
+    const en = enemySet(S, a.c); if (!en.size) continue;
+    const carrier = a.n >= R;
+    const rng = carrier ? 520 : airRange(S, a);
+    let best = null, bv = 0;
+    for (const [z, list] of byZone) {
+      const tg = list.filter(f => en.has(f.c) && !f.dead);
+      if (!tg.length) continue;
+      const d = carrier ? (z === a.n ? 0 : gcDist(nodes[a.n].lon, nodes[a.n].lat, nodes[z].lon, nodes[z].lat)) : landSeaDist(a.n, z);
+      if (d > rng) continue;
+      const v = tg.reduce((s2, f) => s2 + UNITS[f.t].cost, 0) / (1 + d / 400);
+      if (v > bv) { bv = v; best = { z, tg }; }
+    }
+    if (!best) continue;
+    // 敵方空中掩護：該海域的敵航艦 + 航程內的敵戰鬥機
+    let cover = 0;
+    for (const f of best.tg) if (f.t === 'car') cover += 8 * f.hp / 100;
+    for (const f of airUnits) if (UNITS[f.t].cls === 'ftr' && en.has(f.c) && landSeaDist(f.n, best.z) <= airRange(S, f)) cover += airPower(S, f) * 0.5;
+    const target = best.tg.slice().sort((x, y) => UNITS[y.t].cost - UNITS[x.t].cost)[0];
+    let dmg = navalStrike(S, a) * 0.35 * (0.7 + 0.6 * rand(S)) * 10 / (10 + cover);
+    if (target.t === 'sub') dmg *= 0.5;
+    target.hp -= dmg;
+    if (target.hp <= 0) { killUnit(S, target); S.C[target.c].stats.lost++; S.C[a.c].stats.kills++; addNews(S, `${cname(S, a.c)}的${carrier ? '艦載機' : '海軍航空隊'}擊沉了${cname(S, target.c)}的${UNITS[target.t].name}。`, 'info', [a.c, target.c]); }
+    else if (target.hp < 25 && !target.path.length) relocateUnit(S, target);
+    if (!carrier) { a._busy = true; a._loss = Math.max(a._loss, Math.min(5, 1 + cover * 0.12)); }
   }
 }
 function retreatUnit(S, u, from, battlesTargets) {
@@ -975,8 +1160,8 @@ function landCombat(S, battles) {
     if (!atts.length || !defs.length) continue;
     const attScore = atts.map(u => {
       let a = unitAttack(S, u, terr) * unitEff(S, u) * b.airA;
-      if (u.n >= R) a *= UNITS[u.t].amph ? 0.85 : 0.45;
-      else { const e = edgeOf(u.n, r); if (e && e.t === 1) a *= UNITS[u.t].amph ? 0.9 : 0.7; }
+      if (u.n >= R) a *= UNITS[u.t].amph ? 0.85 : 0.45 + Math.min(0.3, techBonus(S.C[u.c]).amph * 0.6);
+      else { const e = edgeOf(u.n, r); if (e && e.t === 1) a *= UNITS[u.t].amph ? 0.9 : 0.7 + Math.min(0.15, techBonus(S.C[u.c]).amph * 0.3); }
       return [a, u];
     }).sort((x, y) => y[0] - x[0]);
     const defScore = defs.map(u => [unitDefense(S, u) * unitEff(S, u) * Tm.def * (1 + 0.2 * S.fort[r]) * (1 + Math.min(0.2, u.ent * 0.01)) * b.airD, u]).sort((x, y) => y[0] - x[0]);
@@ -1107,7 +1292,7 @@ function navalPhase(S, idx, zp) {
   for (const t in S.C) {
     const C = S.C[t]; if (!C.exists) continue;
     const rp = raid[t] || 0;
-    C.convoyLoss = rp > 0 ? Math.min(0.3, rp / (rp + (C.indTotal || 1) * 4 + 20)) : 0;
+    C.convoyLoss = rp > 0 ? Math.min(0.3, rp / (rp + (C.indTotal || 1) * 4 + 20)) * (1 - Math.min(0.6, techBonus(C).escort)) : 0;
   }
   // 艦隊修理
   for (const u of S.units) {
@@ -1128,7 +1313,7 @@ function recovery(S, battleUnits) {
     if (u.sup) {
       u.org = Math.min(mo, u.org + 4);
       if (u.hp < 100) {
-        const gain = Math.min(3, 100 - u.hp), cost = UNITS[u.t].man * gain / 100;
+        const gain = Math.min(3, 100 - u.hp), cost = UNITS[u.t].man * gain / 100 * (1 - Math.min(0.5, techBonus(C).medic));
         if (C.man >= cost) { u.hp += gain; C.man -= cost; }
       }
     } else {

@@ -1,8 +1,9 @@
 name: 部署到 GitHub Pages
 
+# 推送到預設分支（目前為 claude/serene-euler-c84723）或 main 時自動部署 public/ 資料夾
 on:
   push:
-    branches: [main]
+    branches: [main, claude/serene-euler-c84723]
   workflow_dispatch:
 
 permissions:

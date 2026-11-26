@@ -4,6 +4,7 @@ import { applyCommand } from '../core/commands.js';
 import { step, serialize } from '../core/game.js';
 
 export const SPEEDS = [0, 1, 2.5, 5, 10, 25]; // 每秒天數
+const OPTIMISTIC = new Set(['research', 'research_cancel', 'focus', 'focus_cancel', 'prod_add', 'prod_remove', 'prod_count', 'prod_up', 'law', 'setflag']);
 
 // ============================================================ 遊戲階段（本機 / 主機 / 客戶端）
 class Emitter {
@@ -16,7 +17,7 @@ export class LocalGame extends Emitter {
   constructor(S, me, opts = {}) {
     super();
     this.S = S; this.me = me;
-    this.speed = 2; this.paused = true;
+    this.speed = 2; this.paused = true; this.lastPendingKey = ''; this.eventPaused = false;
     this.isHost = !!opts.net; this.isClient = false;
     this.net = opts.net || null;
     this.players = opts.players || []; // [{id, name, tag}]
@@ -40,23 +41,48 @@ export class LocalGame extends Emitter {
     const dt = Math.min(0.25, (t - this.last) / 1000); this.last = t;
     if (!this.paused && !this.S.over) {
       this.acc += dt * SPEEDS[this.speed];
-      let n = 0;
+      let n = 0, stop = false;
       const t0 = performance.now();
-      while (this.acc >= 1 && n < 30 && performance.now() - t0 < 40) { step(this.S, 1); this.acc -= 1; n++; }
-      if (this.acc > 3) this.acc = 3;
+      while (this.acc >= 1 && n < 30 && performance.now() - t0 < 40) {
+        step(this.S, 1); this.acc -= 1; n++;
+        // 有新事件需要玩家決定：立刻停在當天
+        if (this.pendingKey() !== (this.lastPendingKey || '') || (this.S.over && !this.overShown)) { stop = true; break; }
+      }
+      if (this.acc > 3 || stop) this.acc = stop ? 0 : 3;
       if (n) {
         this.emit('tick', n);
         if (this.autoPause()) { this.paused = true; this.emit('pause'); }
       }
+    } else if (this.paused && this.eventPaused && !this.pendingKey()) {
+      // 所有玩家都處理完事件：自動繼續
+      this.eventPaused = false; this.paused = false; this.lastPendingKey = '';
+      this.emit('speed');
+      if (this.net) this.broadcastNotice('所有玩家已做出決定，遊戲繼續');
     }
     if (this.net && t - this.lastSend > 250) { this.lastSend = t; this.broadcast(); }
     this.raf = requestAnimationFrame(tt => this.frame(tt));
   }
+  // 所有真人玩家（主機＋客戶端）
+  humanTags() {
+    const t = new Set();
+    if (this.me) t.add(this.me);
+    for (const p of this.players) if (p.tag) t.add(p.tag);
+    return [...t].filter(x => this.S.C[x] && this.S.C[x].exists !== false);
+  }
+  pendingKey() {
+    let k = '';
+    for (const t of this.humanTags()) { const p = this.S.pending[t]; if (p && p.length) k += t + ':' + p.map(x => x.uid).join(',') + ';'; }
+    return k;
+  }
   autoPause() {
-    // 單人模式下，玩家收到事件時自動暫停
-    if (this.net) return false;
-    const p = this.S.pending[this.me];
-    if (p && p.length && this.pauseOnEvents !== false) { const k = p.map(x => x.uid).join(','); if (k !== this.lastPendingKey) { this.lastPendingKey = k; return true; } }
+    // 有玩家收到重大事件時強制暫停（單人與多人皆同），等所有玩家做出決定後自動繼續
+    const key = this.pendingKey();
+    if (key && key !== (this.lastPendingKey || '')) {
+      this.lastPendingKey = key; this.eventPaused = true;
+      if (this.net) this.broadcastNotice('發生重大事件，遊戲暫停，等待玩家做出決定');
+      return true;
+    }
+    if (!key) this.lastPendingKey = '';
     if (this.S.over && !this.overShown) { this.overShown = true; return true; }
     return false;
   }
@@ -71,8 +97,8 @@ export class LocalGame extends Emitter {
     this.emit('update');
     return Promise.resolve(res);
   }
-  setSpeed(s) { this.speed = s; if (this.paused) this.paused = false; this.emit('speed'); }
-  togglePause(byName) { this.paused = !this.paused; this.emit('speed'); if (this.net) this.broadcastNotice(`${byName || '主機'}${this.paused ? '暫停' : '繼續'}了遊戲`); }
+  setSpeed(s) { this.speed = s; if (this.paused) this.paused = false; this.eventPaused = false; this.lastPendingKey = this.pendingKey(); this.emit('speed'); }
+  togglePause(byName) { this.paused = !this.paused; this.eventPaused = false; this.lastPendingKey = this.pendingKey(); this.emit('speed'); if (this.net) this.broadcastNotice(`${byName || '主機'}${this.paused ? '暫停' : '繼續'}了遊戲`); }
   stop() { this.running = false; cancelAnimationFrame(this.raf); if (this.net) this.net.close(); }
 
   // ---------------- 主機
@@ -106,8 +132,10 @@ export class LocalGame extends Emitter {
       const r = applyCommand(this.S, p.tag, m.cmd);
       this.net.send(id, { t: 'res', rid: m.rid, r });
       this.emit('update');
+      // 立刻送出新狀態（暫停時客戶端也能馬上看到研究／國策等變化）
+      this.lastSend = performance.now(); this.broadcast();
     } else if (m.t === 'pause') {
-      this.paused = !!m.v; this.emit('speed'); this.broadcastNotice(`${p.name}${this.paused ? '暫停' : '繼續'}了遊戲`);
+      this.paused = !!m.v; this.eventPaused = false; this.lastPendingKey = this.pendingKey(); this.emit('speed'); this.broadcastNotice(`${p.name}${this.paused ? '暫停' : '繼續'}了遊戲`);
     } else if (m.t === 'chat') {
       const msg = { t: 'chat', from: p.name, text: String(m.text || '').slice(0, 200) };
       this.net.broadcast(msg); this.emit('chat', msg);
@@ -129,9 +157,15 @@ export class LocalGame extends Emitter {
     if (!this.net || !this.players.length) return;
     const shared = this.encoder.encode(this.S, this);
     if (!shared) return;
+    if (!this.lastPriv) this.lastPriv = {};
     for (const p of this.players) {
       const priv = p.tag ? privatePart(this.S, p.tag) : null;
-      this.net.send(p.id, { t: 'snap', s: shared, p: priv });
+      // 私有資料沒變時不重送（節省頻寬）；每 4 秒仍完整送一次以防遺漏
+      const pj = priv ? JSON.stringify(priv) : '';
+      const now = performance.now();
+      const lp = this.lastPriv[p.id];
+      if (priv && lp && lp.j === pj && now - lp.t < 4000) this.net.send(p.id, { t: 'snap', s: shared });
+      else { this.lastPriv[p.id] = { j: pj, t: now }; this.net.send(p.id, { t: 'snap', s: shared, p: priv }); }
     }
   }
 }
@@ -149,7 +183,7 @@ export class RemoteGame extends Emitter {
     net.onClose = () => this.emit('closed');
   }
   onMsg(m) {
-    if (m.t === 'snap') { applySnapshot(this, m.s, m.p); this.emit('tick', 1); }
+    if (m.t === 'snap') { applySnapshot(this, m.s, m.p); if (this.forceNext > 0) { this.forceNext--; this.emit('update'); } else this.emit('tick', 1); }
     else if (m.t === 'res') { const f = this.wait.get(m.rid); if (f) { this.wait.delete(m.rid); f(m.r); } }
     else if (m.t === 'you') { this.me = m.tag; this.emit('you', m.tag); }
     else if (m.t === 'players') { this.players = m.players; this.hostTag = m.host; this.emit('players'); }
@@ -158,7 +192,11 @@ export class RemoteGame extends Emitter {
     else if (m.t === 'start') { this.S = JSON.parse(m.s); this.unitMap = new Map(this.S.units.map(u => [u.id, u])); this.emit('reset'); }
   }
   request(m) { return new Promise(res => { const rid = this.rid++; this.wait.set(rid, res); m.rid = rid; this.net.send(m); setTimeout(() => { if (this.wait.has(rid)) { this.wait.delete(rid); res({ ok: false, msg: '連線逾時' }); } }, 8000); }); }
-  command(cmd) { return this.request({ t: 'cmd', cmd }); }
+  command(cmd) {
+    // 只影響本國私有狀態的指令先在本機套用（下一個快照會以主機為準覆蓋），讓介面立即反應
+    if (OPTIMISTIC.has(cmd.type) && this.me && this.S.C[this.me]) { try { applyCommand(this.S, this.me, cmd); } catch (e) { /* 以主機結果為準 */ } }
+    return this.request({ t: 'cmd', cmd }).then(r => { this.forceNext = 2; return r; });
+  }
   pick(tag) { return this.request({ t: 'pick', tag }); }
   setSpeed() { /* 只有主機能調整速度 */ }
   togglePause() { this.net.send({ t: 'pause', v: !this.paused }); }
@@ -222,7 +260,7 @@ class SnapshotEncoder {
 }
 function privatePart(S, tag) {
   const C = S.C[tag]; if (!C) return null;
-  const keep = ['pp', 'ppd', 'man', 'laws', 'tech', 'res', 'rsp', 'nukeSpeed', 'prod', 'focus', 'mods', 'nap', 'autoArmy', 'autoProd', 'autoDeploy', 'autoResearch', 'autoFocus', 'deploy', 'ic', 'icNet', 'upkeep', 'indTotal', 'convoyLoss', 'stats', 'surrender', 'vpOwned', 'vpHeld', 'lastFac', 'nukes'];
+  const keep = ['pp', 'ppd', 'man', 'laws', 'techs', 'rcat', 'res', 'rsp', 'nukeSpeed', 'prod', 'focus', 'mods', 'nap', 'autoArmy', 'autoProd', 'autoDeploy', 'autoResearch', 'autoFocus', 'deploy', 'ic', 'icNet', 'upkeep', 'indTotal', 'convoyLoss', 'stats', 'surrender', 'vpOwned', 'vpHeld', 'lastFac', 'nukes'];
   const o = {};
   for (const k of keep) if (C[k] !== undefined) o[k] = C[k];
   o.pending = S.pending[tag] || [];
@@ -243,7 +281,7 @@ function applySnapshot(G, s, p) {
   if (s.u || s.ud) S.units = [...G.unitMap.values()];
   if (s.c) for (const t in s.c) {
     const pub = s.c[t];
-    if (!S.C[t]) S.C[t] = { tag: t, tech: {}, laws: {}, focus: { done: [] }, res: [], prod: [], mods: {}, nap: {}, stats: {} };
+    if (!S.C[t]) S.C[t] = { tag: t, techs: [], laws: {}, focus: { done: [] }, res: [], prod: [], mods: {}, nap: {}, stats: {} };
     Object.assign(S.C[t], pub);
     S.C[t].surrender = pub.sur; S.C[t].nukes = pub.nk; S.C[t].ai = !!pub.ai;
   }

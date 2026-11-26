@@ -1,12 +1,14 @@
 // 電腦 AI：經濟、研究、國策、法律、前線作戰、兩棲登陸、艦隊、空軍、外交
 import { WORLD, rDist } from './world.js';
-import { UNITS, TERRAIN, TECH, LAWS } from '../data/rules.js';
+import { UNITS, TERRAIN, TECHS, LAWS } from '../data/rules.js';
 import {
   liveTags, alive, atWar, atWarAny, enemySet, friendly, allied, isLandUnit, isAir, isNaval, orderMove, findPath,
   unitAttack, unitDefense, unitEff, deployRegion, canBuild, canResearch, researchCost, focusList, focusAvailable,
   lawAllowed, multiDijkstra, seaBalance, navPower, airRange, HOOKS, regionIndCap, declareWar, makePeace, addNews, cname,
+  hasFlag, hasTech,
 } from './engine.js';
 import { aiAcceptPeace, expirePrompts } from './commands.js';
+import { dynamicWars } from './worldevents.js';
 import { rand, yearOf } from './util.js';
 
 const R = WORLD.R, NN = WORLD.N, nodes = WORLD.nodes, ADJ = WORLD.adj;
@@ -34,6 +36,7 @@ export function aiTick(S) {
     if ((C.ai || C.autoArmy) && (S.day + off) % 5 === 0) { aiNavy(S, t); aiAir(S, t); }
     if (C.ai && (S.day + off) % 30 === 0) aiDiplomacy(S, t);
   }
+  dynamicWars(S);
   expirePrompts(S);
 }
 
@@ -42,8 +45,15 @@ function aiEconomy(S, t) {
   const C = S.C[t];
   const war = atWarAny(S, t);
   const ic = C.ic || 0;
-  let land = 0, air = 0, nav = 0, bmb = 0;
-  for (const u of S.units) if (u.c === t && !u.dead) { if (isLandUnit(u)) land++; else if (isAir(u)) { air++; if (u.t === 'bmb') bmb++; } else nav++; }
+  let land = 0, tanks = 0, ftrs = 0, bmbs = 0, nav = 0, cars = 0;
+  for (const u of S.units) if (u.c === t && !u.dead) {
+    const T = UNITS[u.t];
+    if (T.domain === 'land') { land++; if (T.armor) tanks++; }
+    else if (T.domain === 'air') { if (T.cls === 'ftr') ftrs++; else bmbs++; }
+    else { nav++; if (u.t === 'car') cars++; }
+  }
+  const y = yearOf(S.day);
+  const bestOf = (list) => { for (const x of list) if (!canBuild(S, t, x)) return x; return null; };
   const major = WORLD.countries[t].major;
   const navyPref = WORLD.countries[t].navy;
   const coastal = deployRegion(S, t, 'flt') !== undefined;
@@ -65,14 +75,33 @@ function aiEconomy(S, t) {
   const manOk = C.man > 30;
   if (manOk && (war || land < peaceCap) && !upkeepHeavy) {
     want.push(['inf', war ? 3 : 2]);
-    if (!canBuild(S, t, 'arm') && ic >= 10) want.push([C.tech.arm >= 3 && ic >= 25 && rand(S) < 0.5 && !canBuild(S, t, 'mec') ? 'mec' : 'arm', war ? 2 : 1]);
+    const tank = bestOf(['mbt', 'arm', 'ltk']);
+    if (tank && ic >= 10 && tanks < land * (major ? 0.4 : 0.22) + 1) {
+      // 二戰中後期的強權偶爾生產重型坦克
+      const heavy = major && war && ic >= 40 && tank === 'arm' && !canBuild(S, t, 'htk') && rand(S) < 0.3;
+      want.push([heavy ? 'htk' : tank, war ? 2 : 1]);
+    }
+    if (ic >= 25 && !canBuild(S, t, 'mec') && rand(S) < 0.5) want.push(['mec', 1]);
   }
-  if (ic >= 7 && air < Math.max(2, land * 0.25)) want.push(['ftr', 1]);
-  if (ic >= 22 && bmb < air * 0.4) want.push(['bmb', 1]);
-  if (coastal && ic >= 14 && (navyPref || (major && nav < 3)) && nav < Math.max(2, land * (navyPref ? 0.3 : 0.1))) want.push([navyPref ? 'flt' : 'sub', 1]);
+  const fighter = bestOf(['jet', 'ftr']);
+  if (ic >= 7 && fighter && ftrs < Math.max(2, land * 0.2)) want.push([fighter, 1]);
+  if (ic >= 15 && bmbs < Math.max(1, ftrs * 0.7)) {
+    const opts = [];
+    if (!canBuild(S, t, 'cas')) opts.push('cas');
+    if (!canBuild(S, t, 'bmb')) opts.push('bmb');
+    if (y >= 1965 && !canBuild(S, t, 'hel')) opts.push('hel');
+    if (major && ic >= 60 && !canBuild(S, t, 'str')) opts.push('str', 'str');
+    if (navyPref && coastal && !canBuild(S, t, 'nvb')) opts.push('nvb');
+    if (opts.length) want.push([opts[Math.floor(rand(S) * opts.length)], 1]);
+  }
+  if (coastal && ic >= 14 && (navyPref || (major && nav < 3)) && nav < Math.max(2, land * (navyPref ? 0.3 : 0.1))) {
+    let ship = navyPref ? 'flt' : 'sub';
+    if (navyPref && !canBuild(S, t, 'car') && cars < nav * 0.4 + 1) ship = 'car';
+    want.push([ship, 1]);
+  }
   if (coastal && navyPref && ic >= 20 && war) want.push(['sub', 1]);
   if (war && manOk && (t === 'USA' || t === 'JAP' || t === 'ENG') && rand(S) < 0.5) want.push(['mar', 1]);
-  if ((C.tech.nuc || 0) >= 1 && ic >= 50 && C.nukes < (S.tension > 60 ? 12 : 5) && rand(S) < 0.3) want.push(['nuke', 1]);
+  if (hasFlag(C, 'nuke') && ic >= 50 && C.nukes < (S.tension > 60 ? 12 : 5) && rand(S) < 0.3) want.push(['nuke', 1]);
   const maxLines = Math.min(6, 2 + Math.floor(ic / 18));
   const lines = [];
   for (const [type, weight] of want) {
@@ -94,26 +123,35 @@ function aiResearch(S, t) {
   const major = WORLD.countries[t].major;
   const navy = WORLD.countries[t].navy;
   const y = yearOf(S.day);
+  const CW = { ind: y < 1946 ? 1.4 : 1.1, inf: 1.0, arm: major ? 1.0 : 0.55, air: 0.9, nav: navy ? 1.0 : (major ? 0.45 : 0.12), sci: 0.8, doc: 0.85 };
   for (let i = 0; i < C.res.length; i++) {
     if (C.res[i]) continue;
     let best = null, bs = -1;
-    for (const cat of Object.keys(TECH)) {
-      if (canResearch(S, t, cat)) continue;
-      if (C.res.some(s => s && s.cat === cat)) continue;
-      const w = { ind: y < 1946 ? 1.5 : 1.1, inf: 1.1, arm: major ? 1.0 : 0.5, air: 0.9, nav: navy ? 1.1 : (major ? 0.5 : 0.1), nuc: !major ? 0.2 : y >= 1944 ? 2 : 0.4 }[cat];
-      const sc = w / researchCost(S, t, cat) * (0.8 + 0.4 * rand(S));
-      if (sc > bs) { bs = sc; best = cat; }
+    for (const T of TECHS) {
+      if (canResearch(S, t, T.id)) continue;
+      let w = CW[T.cat];
+      if (T.special) w = major ? (y >= 1942 ? 2.2 : 0.3) : (y >= 1960 && (C.indTotal || 0) > 120 ? 0.6 : 0.05);
+      else if (T.cat === 'air' && T.lane === 4 && !major) w *= 0.3;
+      else if (T.cat === 'air' && T.lane === 5 && !navy) w *= 0.3;
+      else if (T.cat === 'arm' && T.lane === 2 && !major) w *= 0.4;
+      if (T.e.unlock) w *= 1.3;
+      const sc = w / researchCost(S, t, T.id) * (0.8 + 0.4 * rand(S));
+      if (sc > bs) { bs = sc; best = T.id; }
     }
-    if (best) C.res[i] = { cat: best, prog: 0 };
+    if (best) C.res[i] = { id: best, prog: 0 };
   }
 }
 function aiFocus(S, t) {
   const C = S.C[t];
   if (C.focus.cur) return;
   const list = focusList(S, t);
-  const avail = list.filter(f => !focusAvailable(S, t, f));
+  let avail = list.filter(f => !focusAvailable(S, t, f));
+  // 歷史模式：AI 不走架空路線、不以國策主動開戰
+  if (S.set.hist) avail = avail.filter(f => !f.alt && !f.eff.war && !f.eff.joinFac && !f.eff.ideo);
   if (!avail.length) return;
-  const f = avail[Math.floor(rand(S) * Math.min(2, avail.length))];
+  const hist = avail.filter(f => f.hist);
+  const pool = hist.length ? hist : avail;
+  const f = pool[Math.floor(rand(S) * Math.min(2, pool.length))];
   C.focus.cur = f.id; C.focus.prog = 0;
 }
 function aiPolitics(S, t) {
@@ -168,8 +206,10 @@ function targetAllowed(S, t, e, post) {
   const ec = S.ctrl[e];
   const k = t < ec ? t + '|' + ec : ec + '|' + t;
   const lim = S.lim && S.lim[k];
-  if (lim) return (lim[t] || []).includes(e) || isRecapture(S, t, e);
-  if (post === 'defensive' && !isRecapture(S, t, e)) return false;
+  // 對真人玩家：AI 不受有限戰爭與防守姿態的限制，會全力進攻
+  const vsHuman = S.set.aiVsHuman !== false && S.C[ec] && !S.C[ec].ai;
+  if (lim && !vsHuman) return (lim[t] || []).includes(e) || (!(lim.nr && lim.nr.includes(t)) && isRecapture(S, t, e));
+  if (post === 'defensive' && !isRecapture(S, t, e) && !vsHuman) return false;
   if (S.noAttack && S.noAttack[t] && S.noAttack[t].includes(S.own[e])) return false;
   return true;
 }
@@ -237,7 +277,8 @@ function aiMilitary(S, t, mode, idx) {
     const ec = S.ctrl[T.r];
     const capR = ecap.get(ec);
     const dcap = capR !== undefined ? rDist(T.r, capR) : 3000;
-    const score = (nodes[T.r].vp + 1.5 + S.ind[T.r] * 0.5) * (D < 1 ? 3 : 1) / (D + 8) * (1 + 1000 / (dcap + 500)) * (0.85 + 0.3 * rand(S));
+    const vsHuman = S.C[ec] && !S.C[ec].ai ? 1.4 : 1; // 優先攻擊真人玩家
+    const score = (nodes[T.r].vp + 1.5 + S.ind[T.r] * 0.5) * (D < 1 ? 3 : 1) / (D + 8) * (1 + 1000 / (dcap + 500)) * (0.85 + 0.3 * rand(S)) * vsHuman;
     return { ...T, D, score };
   }).sort((a, b) => b.score - a.score);
   const keepAt = new Map();
@@ -434,7 +475,7 @@ function aiNavy(S, t) {
   // 敵艦位置
   const ez = new Map();
   for (const u of S.units) if (!u.dead && isNaval(u) && enemies.has(u.c)) ez.set(u.n, (ez.get(u.n) || 0) + navPower(S, u, false));
-  let myPow = 0; for (const u of fleets) if (u.t === 'flt' && u.hp > 50) myPow += navPower(S, u, false);
+  let myPow = 0; for (const u of fleets) if ((u.t === 'flt' || u.t === 'car') && u.hp > 50) myPow += navPower(S, u, false);
   // 尋找可擊敗的敵艦隊（距離 6 格內）
   const near = new Map(); const q = [home]; near.set(home, 0);
   for (let h = 0; h < q.length; h++) { const z = q[h]; const d = near.get(z); if (d >= 6) continue; for (const e of ADJ[z]) if (e.to >= R && !near.has(e.to)) { near.set(e.to, d + 1); q.push(e.to); } }

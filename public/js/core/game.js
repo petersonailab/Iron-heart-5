@@ -2,7 +2,8 @@
 import './history.js';
 import './ai.js';
 import { newGame, SCENARIOS, SCEN } from './scenarios.js';
-import { tick, liveTags, atWar, cname, scores, recalc } from './engine.js';
+import { tick, liveTags, atWar, cname, scores, recalc, techsUpTo } from './engine.js';
+import { yearOf } from './util.js';
 import { applyCommand } from './commands.js';
 
 export { SCENARIOS, SCEN, applyCommand, scores };
@@ -25,7 +26,18 @@ export function step(S, days = 1) { for (let i = 0; i < days && !S.over; i++) ti
 export function serialize(S) {
   return JSON.stringify(S, (k, v) => (k && k[0] === '_' ? undefined : v));
 }
-export function deserialize(json) { return typeof json === 'string' ? JSON.parse(json) : json; }
+export function deserialize(json) {
+  const S = typeof json === 'string' ? JSON.parse(json) : json;
+  // 舊版存檔：逐級科技 → 科技樹
+  const y = yearOf(S.day);
+  for (const t in S.C) {
+    const C = S.C[t];
+    if (!C.techs) { C.techs = techsUpTo(y - (C.tech && C.tech.ind >= 3 ? 1 : 3)); delete C.tech; }
+    if (!C.rcat) C.rcat = {};
+    if (C.res) C.res = C.res.map(x => (x && x.cat ? null : x));
+  }
+  return S;
+}
 export function warsSummary(S) {
   const out = [];
   for (const k in S.wars) { const [a, b] = k.split('|'); out.push(`${cname(S, a)}–${cname(S, b)}`); }

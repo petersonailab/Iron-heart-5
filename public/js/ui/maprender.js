@@ -2,6 +2,8 @@
 import { WORLD } from '../core/world.js';
 import { UNITS, TERRAIN } from '../data/rules.js';
 import { IDEOLOGIES } from '../data/countries.js';
+import { flagCanvas } from './flags.js';
+import { drawGlyph } from './icons.js';
 
 const { MAP, nodes, R } = WORLD;
 const W = MAP.W, H = MAP.H, NN = WORLD.N;
@@ -48,6 +50,27 @@ function buildPaths() {
 const GEOM = buildPaths();
 const WASTE = R + WORLD.S, LAKE = R + WORLD.S + 1;
 
+// 地形紋理（固定螢幕大小的圖樣，疊在政治地圖上）
+const TEX = {};
+function terrainTexture(t) {
+  if (TEX[t] !== undefined) return TEX[t];
+  if (typeof document === 'undefined') return null;
+  const c = document.createElement('canvas'); c.width = c.height = 24;
+  const g = c.getContext('2d');
+  g.strokeStyle = 'rgba(0,0,0,0.55)'; g.fillStyle = 'rgba(0,0,0,0.5)'; g.lineWidth = 1.1;
+  const P = (pts) => { g.beginPath(); g.moveTo(pts[0], pts[1]); for (let i = 2; i < pts.length; i += 2) g.lineTo(pts[i], pts[i + 1]); g.stroke(); };
+  if (t === 'M') { P([2, 11, 6, 4, 10, 11]); P([13, 22, 17, 15, 21, 22]); g.strokeStyle = 'rgba(255,255,255,0.35)'; P([6, 4, 7.5, 6.5]); P([17, 15, 18.5, 17.5]); }
+  else if (t === 'H') { g.beginPath(); g.arc(6, 10, 4, Math.PI, 0); g.stroke(); g.beginPath(); g.arc(17, 21, 4, Math.PI, 0); g.stroke(); }
+  else if (t === 'F') { for (const [x, y] of [[5, 6], [17, 9], [10, 18], [21, 20]]) { g.beginPath(); g.moveTo(x, y - 3); g.lineTo(x + 2.4, y + 1.5); g.lineTo(x - 2.4, y + 1.5); g.closePath(); g.fill(); } }
+  else if (t === 'J') { for (const [x, y] of [[3, 4], [11, 6], [19, 3], [7, 13], [15, 15], [22, 12], [3, 20], [12, 22], [20, 21]]) { g.beginPath(); g.arc(x, y, 1.7, 0, Math.PI * 2); g.fill(); } }
+  else if (t === 'D') { g.fillStyle = 'rgba(90,60,10,0.45)'; for (const [x, y] of [[4, 5], [14, 3], [20, 11], [9, 14], [3, 20], [16, 20]]) g.fillRect(x, y, 1.4, 1.4); g.strokeStyle = 'rgba(90,60,10,0.35)'; P([2, 10, 6, 9, 10, 10]); P([13, 17, 17, 16, 21, 17]); }
+  else if (t === 'S') { g.strokeStyle = 'rgba(0,40,60,0.55)'; P([3, 7, 9, 7]); P([12, 9, 18, 9]); P([6, 16, 12, 16]); P([15, 20, 21, 20]); }
+  else if (t === 'T') { g.fillStyle = 'rgba(255,255,255,0.55)'; for (const [x, y] of [[5, 5], [15, 9], [9, 17], [20, 19]]) g.fillRect(x, y, 1.6, 1.6); }
+  else if (t === 'U') { g.fillStyle = 'rgba(0,0,0,0.45)'; for (const [x, y] of [[4, 4], [8, 4], [4, 8], [15, 14], [19, 14], [15, 18], [19, 18]]) g.fillRect(x, y, 2.4, 2.4); }
+  else { TEX[t] = null; return null; }
+  TEX[t] = c;
+  return c;
+}
 function hexToRgb(h) { const n = parseInt(h.slice(1), 16); return [(n >> 16) & 255, (n >> 8) & 255, n & 255]; }
 function shade(hex, f) { const [r, g, b] = hexToRgb(hex); const m = (v) => Math.max(0, Math.min(255, Math.round(v * f))); return `rgb(${m(r)},${m(g)},${m(b)})`; }
 
@@ -67,6 +90,7 @@ export class MapView {
     this.onRegion = opts.onRegion || (() => {});
     this.onHover = opts.onHover || (() => {});
     this.patternCache = new Map();
+    this.texPat = {};
     this.labelCache = null;
     this.orderMode = false;
     this.bind();
@@ -188,7 +212,8 @@ export class MapView {
         sx += x * a; sy += nodes[r].y * a; sa += a;
         for (const m of nodes[r].landNb) if (comp[m] < 0 && S.ctrl[m] === c) { comp[m] = id; q.push(m); }
       }
-      labels.push({ t: c, x: ((sx / sa) % W + W) % W, y: sy / sa, a: sa, n: q.length });
+      const cap = S.C[c] && S.C[c].cap;
+      labels.push({ t: c, x: ((sx / sa) % W + W) % W, y: sy / sa, a: sa, n: q.length, cap: q.includes(cap) });
     }
     this.labelCache = labels.sort((p, q) => q.a - p.a);
   }
@@ -197,7 +222,9 @@ export class MapView {
   draw() {
     const ctx = this.ctx, S = this.S;
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
-    ctx.fillStyle = '#16324a';
+    const og = ctx.createLinearGradient(0, 0, 0, this.vh);
+    og.addColorStop(0, '#173a57'); og.addColorStop(1, '#0f2a42');
+    ctx.fillStyle = og;
     ctx.fillRect(0, 0, this.vw, this.vh);
     if (!S) return;
     if (this.geoDirty) { this.rebuildBorders(); this.geoDirty = false; }
@@ -218,11 +245,17 @@ export class MapView {
     // 海域
     for (let i = R; i < R + WORLD.S; i++) {
       if (!vis(i)) continue;
-      ctx.fillStyle = (i === this.selRegion || i === this.hover) ? '#20476a' : '#1b3d5b';
+      ctx.fillStyle = (i === this.selRegion || i === this.hover) ? '#22506f' : '#1a4060';
       ctx.fill(GEOM.paths[i]);
     }
-    if (GEOM.paths[LAKE]) { ctx.fillStyle = '#1e4566'; ctx.fill(GEOM.paths[LAKE]); }
-    if (GEOM.paths[WASTE]) { ctx.fillStyle = '#5d5d58'; ctx.fill(GEOM.paths[WASTE]); }
+    if (GEOM.paths[LAKE]) { ctx.fillStyle = '#1f4b6c'; ctx.fill(GEOM.paths[LAKE]); }
+    // 沿岸淺海光暈
+    {
+      const px0 = 1 / z;
+      ctx.lineJoin = 'round'; ctx.lineCap = 'round';
+      for (const [w, a] of [[14, 0.05], [8, 0.07], [4, 0.09]]) { ctx.strokeStyle = `rgba(150,210,235,${a})`; ctx.lineWidth = w * px0; ctx.stroke(this.borders.coast); }
+    }
+    if (GEOM.paths[WASTE]) { ctx.fillStyle = '#6a6a62'; ctx.fill(GEOM.paths[WASTE]); }
     // 陸地
     for (let i = 0; i < R; i++) {
       if (!vis(i)) continue;
@@ -234,6 +267,21 @@ export class MapView {
       }
       if (this.mode === 'supply' && this.supplyBad && this.supplyBad.has(i)) { ctx.fillStyle = 'rgba(200,40,40,0.45)'; ctx.fill(GEOM.paths[i]); }
     }
+    // 地形紋理（政治與陣營地圖）
+    if ((this.mode === 'political' || this.mode === 'faction') && z > 0.75 && typeof DOMMatrix !== 'undefined') {
+      ctx.globalAlpha = Math.min(0.32, (z - 0.75) * 0.5);
+      const m = new DOMMatrix().scale(1 / z, 1 / z);
+      for (let i = 0; i < R; i++) {
+        if (!vis(i)) continue;
+        const t = nodes[i].terrain;
+        let pat = this.texPat[t];
+        if (pat === undefined) { const tx = terrainTexture(t); pat = this.texPat[t] = tx ? ctx.createPattern(tx, 'repeat') : null; }
+        if (!pat) continue;
+        pat.setTransform(m);
+        ctx.fillStyle = pat; ctx.fill(GEOM.paths[i]);
+      }
+      ctx.globalAlpha = 1;
+    }
     // 我國高亮
     if (this.me && this.mode === 'political') {
       ctx.fillStyle = 'rgba(255,255,255,0.07)';
@@ -243,9 +291,10 @@ export class MapView {
     const px = 1 / z;
     ctx.lineJoin = 'round'; ctx.lineCap = 'round';
     if (z > 1.2) { ctx.strokeStyle = 'rgba(140,180,210,0.18)'; ctx.lineWidth = px; ctx.stroke(this.borders.sea); }
-    ctx.strokeStyle = 'rgba(20,20,20,0.35)'; ctx.lineWidth = Math.max(0.35, 0.7 * px); ctx.stroke(this.borders.region);
-    ctx.strokeStyle = 'rgba(10,25,40,0.85)'; ctx.lineWidth = 1.1 * px; ctx.stroke(this.borders.coast);
-    ctx.strokeStyle = 'rgba(15,15,15,0.95)'; ctx.lineWidth = Math.max(0.8, 2.0 * px); ctx.stroke(this.borders.country);
+    ctx.strokeStyle = 'rgba(20,20,20,0.3)'; ctx.lineWidth = Math.max(0.35, 0.7 * px); ctx.stroke(this.borders.region);
+    ctx.strokeStyle = 'rgba(8,22,36,0.9)'; ctx.lineWidth = 1.2 * px; ctx.stroke(this.borders.coast);
+    ctx.strokeStyle = 'rgba(12,12,14,0.92)'; ctx.lineWidth = Math.max(0.9, 2.6 * px); ctx.stroke(this.borders.country);
+    ctx.strokeStyle = 'rgba(255,240,210,0.16)'; ctx.lineWidth = Math.max(0.3, 0.8 * px); ctx.stroke(this.borders.country);
     // 選取 / 懸停
     for (const i of [this.hover, this.selRegion]) {
       if (i < 0 || !GEOM.paths[i]) continue;
@@ -263,18 +312,41 @@ export class MapView {
     ctx.setTransform(this.dpr, 0, 0, this.dpr, 0, 0);
     const inView = (sx, sy, m = 40) => sx > -m && sx < this.vw + m && sy > -m && sy < this.vh + m;
     // 國名
-    if (z < 1.5 && this.labelCache) {
+    if (z < 1.6 && this.labelCache) {
       ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
+      const yr = this.year || 1936;
+      // 先找出要畫的標籤；國旗優先畫在首都所在的領土，否則畫在最大的一塊
+      const drawn = [], flagAt = new Map();
       for (const L of this.labelCache) {
         const size = Math.sqrt(L.a) * z * 0.11;
         if (size < 9) continue;
         const [sx, sy] = this.mapToScreen(L.x, L.y);
         if (!inView(sx, sy, 100)) continue;
+        drawn.push([L, sx, sy, size]);
+        const cur = flagAt.get(L.t);
+        if (!cur || (L.cap && !cur.cap)) flagAt.set(L.t, L);
+      }
+      for (const [L, sx, sy, size] of drawn) {
         const fs = Math.min(30, size);
-        ctx.font = `600 ${fs}px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif`;
-        ctx.lineWidth = 3; ctx.strokeStyle = 'rgba(0,0,0,0.55)';
+        ctx.font = `700 ${fs}px "Noto Sans TC","PingFang TC","Microsoft JhengHei",sans-serif`;
         const name = (S.C[L.t] && S.C[L.t].name) || L.t;
-        ctx.strokeText(name, sx, sy); ctx.fillStyle = 'rgba(255,255,255,0.88)'; ctx.fillText(name, sx, sy);
+        // 每個國家最大的一塊領土旁邊畫國旗
+        let ox = 0;
+        if (flagAt.get(L.t) === L && fs >= 10) {
+          const fc = flagCanvas(L.t, yr, 48, 32);
+          if (fc) {
+            const fh = Math.max(9, fs * 0.82), fw = fh * 1.5, tw = ctx.measureText(name).width;
+            const fx = sx - (tw + fw + 5) / 2, fy = sy - fh / 2;
+            ctx.shadowColor = 'rgba(0,0,0,0.6)'; ctx.shadowBlur = 4;
+            ctx.drawImage(fc, fx, fy, fw, fh);
+            ctx.shadowBlur = 0;
+            ctx.strokeStyle = 'rgba(0,0,0,0.7)'; ctx.lineWidth = 1; ctx.strokeRect(fx, fy, fw, fh);
+            ox = (fw + 5) / 2;
+          }
+        }
+        ctx.lineJoin = 'round';
+        ctx.lineWidth = Math.max(3, fs * 0.18); ctx.strokeStyle = 'rgba(0,0,0,0.6)';
+        ctx.strokeText(name, sx + ox, sy); ctx.fillStyle = 'rgba(255,250,235,0.93)'; ctx.fillText(name, sx + ox, sy);
       }
     }
     // 地區名稱
@@ -301,8 +373,9 @@ export class MapView {
       const n = nodes[C.cap]; if (!n) continue;
       const [sx, sy] = this.mapToScreen(n.x, n.y);
       if (!inView(sx, sy) || z < 0.6) continue;
-      ctx.fillStyle = '#ffe08a'; ctx.strokeStyle = '#000'; ctx.lineWidth = 1;
-      star(ctx, sx - 13, sy - 10, 4.5); ctx.fill(); ctx.stroke();
+      ctx.shadowColor = 'rgba(255,210,100,0.8)'; ctx.shadowBlur = 6;
+      ctx.fillStyle = '#ffe08a'; star(ctx, sx - 13, sy - 10, 5); ctx.fill();
+      ctx.shadowBlur = 0; ctx.strokeStyle = 'rgba(60,40,0,0.9)'; ctx.lineWidth = 1; ctx.stroke();
     }
     // 移動箭頭（自己的部隊）
     const mine = S.units.filter(u => u.c === this.me && u.path && u.path.length);
@@ -328,11 +401,16 @@ export class MapView {
       let bx = tx, by = ty;
       if (f) { const [fx, fy] = this.mapToScreen(f.x, f.y); if (Math.abs(fx - tx) < this.vw) { bx = (tx * 2 + fx) / 3; by = (ty * 2 + fy) / 3; } }
       const mineInvolved = b.ac === this.me || b.dc === this.me;
-      ctx.fillStyle = mineInvolved ? 'rgba(220,60,40,0.95)' : 'rgba(160,60,40,0.85)';
-      ctx.beginPath(); ctx.arc(bx, by, 9, 0, Math.PI * 2); ctx.fill();
-      ctx.strokeStyle = '#000'; ctx.lineWidth = 1; ctx.stroke();
-      ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-      ctx.fillText('⚔', bx, by + 0.5);
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 260);
+      if (mineInvolved) { ctx.strokeStyle = `rgba(255,90,60,${0.35 + 0.35 * pulse})`; ctx.lineWidth = 2; ctx.beginPath(); ctx.arc(bx, by, 12 + 2 * pulse, 0, Math.PI * 2); ctx.stroke(); }
+      const bg = ctx.createRadialGradient(bx - 2, by - 3, 1, bx, by, 10);
+      bg.addColorStop(0, mineInvolved ? '#ff7a55' : '#d0805a'); bg.addColorStop(1, mineInvolved ? '#9a1d10' : '#6a2a1a');
+      ctx.fillStyle = bg; ctx.beginPath(); ctx.arc(bx, by, 9.5, 0, Math.PI * 2); ctx.fill();
+      ctx.strokeStyle = 'rgba(0,0,0,0.8)'; ctx.lineWidth = 1; ctx.stroke();
+      // 交叉的劍
+      ctx.strokeStyle = '#fff6e0'; ctx.lineWidth = 1.8; ctx.lineCap = 'round';
+      ctx.beginPath(); ctx.moveTo(bx - 4.5, by - 4.5); ctx.lineTo(bx + 4.5, by + 4.5); ctx.moveTo(bx + 4.5, by - 4.5); ctx.lineTo(bx - 4.5, by + 4.5); ctx.stroke();
+      ctx.lineWidth = 1.4; ctx.beginPath(); ctx.moveTo(bx - 5.5, by + 1.5); ctx.lineTo(bx - 1.5, by + 5.5); ctx.moveTo(bx + 5.5, by + 1.5); ctx.lineTo(bx + 1.5, by + 5.5); ctx.stroke();
       // 進度條
       ctx.fillStyle = 'rgba(0,0,0,0.6)'; ctx.fillRect(bx - 12, by + 10, 24, 4);
       ctx.fillStyle = b.ac === this.me ? '#6c6' : b.dc === this.me ? '#e55' : '#ddd';
@@ -341,7 +419,10 @@ export class MapView {
     for (const nb of S.navBattles || []) {
       const [sx, sy] = this.mapToScreen(nodes[nb.z].x, nodes[nb.z].y);
       if (!inView(sx, sy)) continue;
-      ctx.font = '16px sans-serif'; ctx.textAlign = 'center'; ctx.fillText('💥', sx, sy - 18);
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 200);
+      ctx.fillStyle = `rgba(255,170,60,${0.6 + 0.3 * pulse})`;
+      star(ctx, sx, sy - 18, 9 + pulse * 2); ctx.fill();
+      ctx.fillStyle = '#fff3c0'; star(ctx, sx, sy - 18, 4.5); ctx.fill();
     }
     // 部隊標誌
     this.drawCounters(inView);
@@ -354,11 +435,11 @@ export class MapView {
       if (u.dead) continue;
       const key = u.n + ':' + u.c;
       let g = groups.get(key);
-      if (!g) groups.set(key, g = { n: u.n, c: u.c, units: [], land: 0, air: 0, sea: 0, hp: 0, org: 0, moving: false, arm: 0 });
+      if (!g) groups.set(key, g = { n: u.n, c: u.c, units: [], land: 0, air: 0, sea: 0, hp: 0, org: 0, moving: false, types: {} });
       g.units.push(u);
       const d = UNITS[u.t].domain;
       if (d === 'land') g.land++; else if (d === 'air') g.air++; else g.sea++;
-      if (u.t === 'arm' || u.t === 'mec') g.arm++;
+      g.types[u.t] = (g.types[u.t] || 0) + 1;
       g.hp += u.hp; g.org += u.org / (UNITS[u.t].org || 60);
       if (u.path && u.path.length) g.moving = true;
     }
@@ -367,6 +448,15 @@ export class MapView {
     const showAll = z >= 1.15;
     const relevant = (c) => c === this.me || (this.me && S.wars && Object.keys(S.wars).some(k => { const [a, b] = k.split('|'); return (a === c || b === c) && (a === this.me || b === this.me || (S.C[this.me] && S.C[this.me].fac && S.C[this.me].fac === (S.C[a === c ? b : a] || {}).fac)); }));
     const relCache = new Map();
+    const yr = this.year || 1936;
+    // 圖示：選出該堆疊中最具代表性的兵種
+    const PRI = ['mbt', 'htk', 'arm', 'ltk', 'mec', 'mar', 'inf', 'jet', 'ftr', 'str', 'bmb', 'cas', 'nvb', 'hel', 'car', 'flt', 'sub'];
+    const glyphOf = (g) => {
+      const dom = g.land ? 'land' : g.sea ? 'sea' : 'air';
+      let best = null, bn = -1;
+      for (const t of PRI) { const n = g.types[t] || 0; if (!n || UNITS[t].domain !== dom) continue; const w = n * (t === 'inf' ? 0.6 : 1); if (w > bn) { bn = w; best = t; } }
+      return best || 'inf';
+    };
     for (const [n, gs] of byNode) {
       const node = nodes[n];
       const [sx, sy] = this.mapToScreen(node.x, node.y);
@@ -376,40 +466,39 @@ export class MapView {
       for (const g of gs) {
         if (!showAll && g.c !== this.me) { let rv = relCache.get(g.c); if (rv === undefined) relCache.set(g.c, rv = relevant(g.c)); if (!rv) continue; }
         if (row > 3) break;
-        const w = 30, h = 17;
-        const x = sx - w / 2 + 6, y = sy - h / 2 + row * (h + 2) - (gs.length > 1 ? 4 : 0);
+        const w = 44, h = 18;
+        const x = sx - w / 2 + 6, y = sy - h / 2 + row * (h + 3) - (gs.length > 1 ? 4 : 0);
         const col = this.countryColor(g.c);
         const sel = g.units.some(u => this.sel.has(u.id));
-        ctx.fillStyle = col;
-        roundRect(ctx, x, y, w, h, 3); ctx.fill();
-        ctx.lineWidth = sel ? 2.5 : 1; ctx.strokeStyle = sel ? '#ffe066' : (g.c === this.me ? '#fff' : '#111');
-        ctx.stroke();
+        const mine = g.c === this.me;
+        // 外框與底色
+        ctx.shadowColor = sel ? 'rgba(255,224,102,0.9)' : 'rgba(0,0,0,0.55)'; ctx.shadowBlur = sel ? 8 : 3;
+        const bgr = ctx.createLinearGradient(0, y, 0, y + h);
+        bgr.addColorStop(0, '#2b323d'); bgr.addColorStop(1, '#161b22');
+        ctx.fillStyle = bgr; roundRect(ctx, x, y, w, h, 3.5); ctx.fill();
+        ctx.shadowBlur = 0;
+        ctx.lineWidth = sel ? 2.2 : 1.6; ctx.strokeStyle = sel ? '#ffe066' : col; ctx.stroke();
+        // 國旗
+        const fc = flagCanvas(g.c, yr, 48, 32);
+        if (fc) { ctx.drawImage(fc, x + 2, y + 2, 15, h - 4); ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 0.8; ctx.strokeRect(x + 2, y + 2, 15, h - 4); }
+        else { ctx.fillStyle = col; ctx.fillRect(x + 2, y + 2, 15, h - 4); }
         // 兵種符號
-        ctx.fillStyle = 'rgba(0,0,0,0.35)'; ctx.fillRect(x + 2, y + 2, 12, h - 4);
-        ctx.strokeStyle = '#fff'; ctx.lineWidth = 1;
-        const ix = x + 2, iy = y + 2, iw = 12, ih = h - 4;
-        if (g.land) {
-          if (g.arm) { ctx.beginPath(); ctx.ellipse(ix + iw / 2, iy + ih / 2, 4.2, 2.6, 0, 0, Math.PI * 2); ctx.stroke(); }
-          if (g.land > g.arm) { ctx.beginPath(); ctx.moveTo(ix + 1, iy + 1); ctx.lineTo(ix + iw - 1, iy + ih - 1); ctx.moveTo(ix + iw - 1, iy + 1); ctx.lineTo(ix + 1, iy + ih - 1); ctx.stroke(); }
-        } else if (g.sea) {
-          ctx.beginPath(); ctx.moveTo(ix + 1, iy + ih - 4); ctx.lineTo(ix + iw - 1, iy + ih - 4); ctx.lineTo(ix + iw - 3, iy + ih - 1); ctx.lineTo(ix + 3, iy + ih - 1); ctx.closePath(); ctx.stroke();
-          ctx.beginPath(); ctx.moveTo(ix + iw / 2, iy + 1); ctx.lineTo(ix + iw / 2, iy + ih - 4); ctx.stroke();
-        } else if (g.air) {
-          ctx.beginPath(); ctx.moveTo(ix + iw / 2, iy + 1); ctx.lineTo(ix + iw / 2, iy + ih - 1); ctx.moveTo(ix + 1, iy + ih / 2); ctx.lineTo(ix + iw - 1, iy + ih / 2); ctx.stroke();
-        }
+        const gt = glyphOf(g);
+        drawGlyph(ctx, gt, x + 18.5, y + 3.5, 13, h - 7, mine ? '#ffe9b0' : '#e8e1d0');
+        if (['inf', 'mar', 'mec', 'ltk', 'arm', 'htk', 'mbt'].includes(gt)) { ctx.strokeStyle = mine ? '#ffe9b0' : '#e8e1d0'; ctx.lineWidth = 1; ctx.strokeRect(x + 18.5, y + 3.5, 13, h - 7); }
+        // 數量
         const count = g.land || g.sea || g.air;
         ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
-        ctx.strokeStyle = 'rgba(0,0,0,0.6)'; ctx.lineWidth = 2.5;
         const label = String(count) + (g.land && (g.air || g.sea) ? '+' : '');
-        ctx.strokeText(label, x + 22, y + h / 2 + 0.5); ctx.fillText(label, x + 22, y + h / 2 + 0.5);
-        // 實力條
+        ctx.fillText(label, x + 38, y + h / 2 + 0.5);
+        // 組織度／兵力條
         const k = g.units.length;
-        const hp = g.hp / k / 100, org = g.org / k;
-        ctx.fillStyle = '#300'; ctx.fillRect(x, y + h, w, 3);
-        ctx.fillStyle = org > 0.5 ? '#5d5' : org > 0.25 ? '#dc4' : '#e44'; ctx.fillRect(x, y + h, w * org, 3);
-        if (hp < 0.98) { ctx.fillStyle = 'rgba(255,255,255,0.5)'; ctx.fillRect(x, y + h + 2, w * hp, 1); }
-        if (g.moving && g.c === this.me) { ctx.fillStyle = '#ffe066'; ctx.beginPath(); ctx.arc(x + w - 1, y + 1, 2.5, 0, Math.PI * 2); ctx.fill(); }
-        this.counterRects.push({ x, y, w, h: h + 3, n: g.n, c: g.c, ids: g.units.map(u => u.id) });
+        const hp = g.hp / k / 100, org = Math.max(0, Math.min(1, g.org / k));
+        ctx.fillStyle = 'rgba(0,0,0,0.75)'; ctx.fillRect(x + 1, y + h + 1, w - 2, 3.2);
+        ctx.fillStyle = org > 0.5 ? '#5fd36a' : org > 0.25 ? '#e3c84a' : '#ea4a3c'; ctx.fillRect(x + 1, y + h + 1, (w - 2) * org, 2);
+        ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(x + 1, y + h + 3.2, (w - 2) * Math.min(1, hp), 1);
+        if (g.moving && mine) { ctx.fillStyle = '#ffe066'; ctx.beginPath(); ctx.arc(x + w - 1.5, y + 1.5, 2.6, 0, Math.PI * 2); ctx.fill(); }
+        this.counterRects.push({ x, y, w, h: h + 4, n: g.n, c: g.c, ids: g.units.map(u => u.id) });
         row++;
       }
     }

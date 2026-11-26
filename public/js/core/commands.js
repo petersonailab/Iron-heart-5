@@ -1,10 +1,10 @@
 // 玩家指令：所有改變遊戲狀態的操作都經由這裡（單機與多人共用）
 import { WORLD } from './world.js';
-import { UNITS, LAWS, TECH, BUILD } from '../data/rules.js';
+import { UNITS, LAWS, BUILD, TECH_MAP } from '../data/rules.js';
 import {
   alive, atWar, friendly, allied, enemySet, declareWar, makePeace, joinFaction, leaveFaction, makeFaction,
   orderMove, canBuild, lawAllowed, canResearch, focusList, focusAvailable, addNews, cname, rname, createCountry,
-  nukeStrike, isLandUnit, liveTags, regionsOf,
+  nukeStrike, isLandUnit, liveTags, regionsOf, hasFlag,
 } from './engine.js';
 import { pairKey, clamp } from './util.js';
 
@@ -12,10 +12,14 @@ const R = WORLD.R;
 
 export function warCost(S, tag, target) {
   const C = S.C[tag];
+  // 內戰雙方（同一國家的兩個政權）宣戰只需少量政治點數，互不侵犯條約也不另外加價
+  if (isCivilPair(tag, target)) return 25;
   let cost = C.ideo === 'dem' ? 80 : 50;
   if (C.nap && C.nap[target] && C.nap[target] > S.day) cost += 100;
   return cost;
 }
+const CIVIL_PAIRS = [['CHI', 'PRC'], ['SPR', 'SPA'], ['KOR', 'PRK'], ['VIN', 'VIS']];
+export function isCivilPair(a, b) { return CIVIL_PAIRS.some(([x, y]) => (x === a && y === b) || (x === b && y === a)); }
 export function canDeclare(S, tag, target) {
   const C = S.C[tag], T = S.C[target];
   if (!alive(S, target) || tag === target) return '無效目標';
@@ -95,10 +99,10 @@ export function applyCommand(S, tag, cmd) {
       const r = cmd.region;
       if (r < 0 || r >= R) return fail('無效目標');
       if (!atWar(S, tag, S.ctrl[r])) return fail('只能攻擊交戰國');
-      if ((C.tech.nuc || 0) < 3) {
+      if (!hasFlag(C, 'icbm') && !hasFlag(C, 'slbm')) {
         // 需要轟炸機航程
-        const ok = S.units.some(u => u.c === tag && u.t === 'bmb' && !u.dead && WORLD.dist[u.n * R + r] <= 1600);
-        if (!ok) return fail('目標超出轟炸機航程（研發洲際彈道飛彈可無限制）');
+        const ok = S.units.some(u => u.c === tag && (u.t === 'bmb' || u.t === 'str') && !u.dead && u.n < R && WORLD.dist[u.n * R + r] <= (u.t === 'str' ? 2600 : 1600));
+        if (!ok) return fail('目標超出轟炸機航程（研發洲際彈道飛彈或彈道飛彈潛艇可無限制）');
       }
       const e = nukeStrike(S, tag, r);
       return e ? fail(e) : okr();
@@ -122,15 +126,17 @@ export function applyCommand(S, tag, cmd) {
     }
     // ---------------- 研究 / 國策 / 法律
     case 'research': {
-      const err = canResearch(S, tag, cmd.cat);
+      const id = cmd.id || cmd.cat;
+      const err = canResearch(S, tag, id);
       if (err) return fail(err);
       let slot = cmd.slot;
       if (slot === undefined || slot < 0) slot = C.res.findIndex(s => !s);
-      if (slot < 0 || slot >= C.res.length) return fail('沒有空的研究欄位');
-      C.res[slot] = { cat: cmd.cat, prog: 0 };
-      return okr();
+      if (slot < 0 || slot >= C.res.length) return fail('沒有空的研究欄位（可先取消進行中的研究）');
+      C.res[slot] = { id, prog: 0 };
+      return okr(`開始研究：${TECH_MAP[id].name}`);
     }
     case 'research_cancel': { if (C.res[cmd.slot]) C.res[cmd.slot] = null; return okr(); }
+    case 'focus_cancel': { if (C.focus.cur) { C.focus.cur = null; C.focus.prog = 0; } return okr('已取消國策'); }
     case 'focus': {
       if (C.focus.cur) return fail('已有進行中的國策');
       const f = focusList(S, tag).find(x => x.id === cmd.id);
@@ -156,6 +162,7 @@ export function applyCommand(S, tag, cmd) {
       C.pp -= warCost(S, tag, cmd.target);
       if (C.nap[cmd.target] > S.day) { delete C.nap[cmd.target]; delete S.C[cmd.target].nap[tag]; S.tension = clamp(S.tension + 5, 0, 100); }
       declareWar(S, tag, cmd.target);
+      if (isCivilPair(tag, cmd.target)) { S.flags['civil:' + (tag < cmd.target ? tag + '|' + cmd.target : cmd.target + '|' + tag)] = true; addNews(S, `${C.name}與${cname(S, cmd.target)}爆發內戰！`, 'war', [tag, cmd.target]); }
       return okr();
     }
     case 'peace': {
@@ -297,7 +304,7 @@ export function resolvePrompt(S, tag, p, optIndex) {
   if (o.act === 'peace') { if (atWar(S, o.a, o.b)) makePeace(S, o.a, o.b, o.kind); return; }
   if (o.act === 'nap') { S.C[o.a].nap[o.b] = S.day + 3650; S.C[o.b].nap[o.a] = S.day + 3650; addNews(S, `${cname(S, o.a)}與${cname(S, o.b)}簽訂互不侵犯條約。`, 'diplo', [o.a, o.b]); return; }
   if (o.act === 'join') { if (S.fac[o.fac]) { joinFaction(S, o.who, o.fac); addNews(S, `${cname(S, o.who)}加入了${S.fac[o.fac].name}。`, 'diplo', [o.who]); } return; }
-  if (o.act === 'hist' && PROMPT_HANDLERS.hist) { PROMPT_HANDLERS.hist(S, tag, p, optIndex); return; }
+  if (o.act && PROMPT_HANDLERS[o.act]) { PROMPT_HANDLERS[o.act](S, tag, p, optIndex, o); return; }
 }
 // 過期的事件自動選第一個選項
 export function expirePrompts(S) {
@@ -308,4 +315,4 @@ export function expirePrompts(S) {
     }
   }
 }
-export { liveTags, regionsOf, BUILD, TECH };
+export { liveTags, regionsOf, BUILD, TECH_MAP };

@@ -2,9 +2,9 @@
 import { WORLD, ridx } from './world.js';
 import {
   newCountry, createCountry, killCountry, transferRegion, makeFaction, joinFaction, leaveFaction, setWar, spawnUnit,
-  friendly, atWar, alive, deployRegion, baseTechLevel, liveTags, addNews,
+  friendly, atWar, alive, deployRegion, liveTags, addNews, grantTechsByYear, canBuild, hasTech,
 } from './engine.js';
-import { mkApi, germanSettlement, decolonize, EVENTS, LISTS } from './history.js';
+import { mkApi, germanSettlement, decolonize, EVENTS, LISTS, chinaWarLimits } from './history.js';
 import { strToDay, yearOf, rand } from './util.js';
 import { COUNTRY_DEFS } from '../data/countries.js';
 
@@ -81,21 +81,47 @@ const THREATS = {
   '1979': { IRQ: ['PER', 'KUW'], PER: ['IRQ'], ISR: ['SYR'], SOV: ['AFG', 'PRC'], PRC: ['VIN', 'SOV'], VIN: ['PRC'], KOR: ['PRK'], PRK: ['KOR'], ARG: ['CHL'], FRG: ['DDR'] },
 };
 
-function setTechAll(S, lvl, majors = {}) {
-  for (const t in S.C) {
-    const C = S.C[t]; if (!C.exists) continue;
-    const major = WORLD.countries[t].major;
-    const base = Math.max(0, lvl - (major ? 0 : 1));
-    for (const k of ['inf', 'arm', 'air', 'nav', 'ind']) C.tech[k] = Math.max(0, base - (k === 'arm' && !major ? 1 : 0));
-    if (majors[t]) Object.assign(C.tech, majors[t]);
+// 舊版逐級科技設定已改為科技樹：開局依「落後年數」給予科技（見 assignTechs）
+function setTechAll() {}
+// 各劇本的科技落後年數（數字越大越落後）；_dev 為歐美已開發國家預設、_def 為其他國家預設
+const TECH_LAG = {
+  '1936': { GER: 1, ENG: 1, FRA: 1, USA: 1, SOV: 1, JAP: 1, ITA: 2, CZE: 2, SWE: 2, HOL: 2, BEL: 2, SWI: 2, POL: 3, CHI: 6, PRC: 9, MAN: 6, _dev: 2, _def: 5 },
+  '1939': { GER: 0, ENG: 1, FRA: 1, USA: 1, SOV: 1, JAP: 1, ITA: 2, CZE: 2, SWE: 2, HOL: 2, BEL: 2, POL: 3, CHI: 6, PRC: 9, MAN: 6, _dev: 2, _def: 5 },
+  '1950': { USA: 0, SOV: 1, ENG: 1, FRA: 2, ITA: 3, JAP: 5, FRG: 4, DDR: 4, SWE: 2, CAN: 2, AST: 3, PRC: 7, CHI: 5, KOR: 8, PRK: 6, ISR: 4, IND: 6, _dev: 3, _def: 7 },
+  '1962': { USA: 0, SOV: 0, ENG: 1, FRA: 1, FRG: 1, ITA: 2, JAP: 2, SWE: 1, ISR: 2, CAN: 2, PRC: 5, CHI: 4, IND: 5, KOR: 5, PRK: 5, EGY: 4, _dev: 3, _def: 6 },
+  '1979': { USA: 0, SOV: 0, ENG: 1, FRA: 1, FRG: 1, JAP: 1, ITA: 2, SWE: 1, ISR: 1, CAN: 1, PRC: 5, CHI: 3, KOR: 4, PRK: 4, IND: 5, IRQ: 4, PER: 3, _dev: 3, _def: 6 },
+};
+// 劇本特有的額外科技（史實上領先的部分）
+const TECH_EXTRA = {
+  '1936': { GER: ['mt1', 'cas1', 'dl1'], SOV: ['mt1', 'lt2', 'dl1'], ENG: ['radar1', 'nvb1', 'f1'], USA: ['nvb1', 'cas1'], JAP: ['nvb1', 'f1', 'cas1'], FRA: ['mt1', 'at1'] },
+  '1939': { GER: ['dl2', 'mt1', 'arm_radio', 'f1', 'cas1', 'syn1'], ENG: ['radar1', 'f1', 'nav_conv'], JAP: ['nvb1', 'f1', 'cas1', 'dn1'], SOV: ['ht1', 'art2'], USA: ['nvb1', 'str1'] },
+};
+function assignTechs(S, scen) {
+  const year = Number(scen);
+  const L = TECH_LAG[scen] || TECH_LAG['1936'];
+  const X = TECH_EXTRA[scen] || {};
+  for (const t of liveTags(S)) {
+    const def = WORLD.countries[t];
+    const cap = nodes[S.C[t].cap] || nodes[def.capital];
+    const dev = def.major || (cap && ((cap.lat > 35 && cap.lon > -25 && cap.lon < 45) || (cap.lon < -50 && cap.lat > 25) || cap.lat < -30));
+    const lag = L[t] ?? (def.major ? 1 : dev ? L._dev : L._def);
+    grantTechsByYear(S, t, year, lag, X[t] || []);
   }
+}
+// 依擁有的科技調整開局部隊兵種（例如 1936 年的裝甲師多為輕型坦克，冷戰時期則是主力戰車）
+function fitType(S, t, type) {
+  const can = (x) => !canBuild(S, t, x);
+  if (type === 'arm') return can('mbt') ? 'mbt' : can('arm') ? 'arm' : can('ltk') ? 'ltk' : 'inf';
+  if (type === 'ftr') return can('jet') ? 'jet' : 'ftr';
+  if (type === 'mec') return can('mec') ? 'mec' : 'inf';
+  return type;
 }
 
 export function newGame(scenId, settings = {}) {
   const sc = SCEN[scenId] || SCEN['1936'];
   const S = {
     v: 1, scen: sc.id, day: strToDay('1936-01-01'), startDay: strToDay(sc.date), endDay: strToDay(settings.endDate || '1991-12-31'),
-    set: { hist: settings.hist !== false, diff: settings.diff || 'normal', aiAggr: settings.aiAggr || 0 },
+    set: { hist: settings.hist !== false, diff: settings.diff || 'normal', aiAggr: settings.aiAggr || 0, fakeWars: settings.fakeWars ?? 1, aiVsHuman: settings.aiVsHuman !== false },
     rng: (settings.seed ?? Math.floor(Math.random() * 2 ** 31)) | 0,
     own: [], ctrl: [], core: [], ind: [], fort: [], dmg: [],
     C: {}, wars: {}, wv: 0, fac: {}, units: [], nid: 1, fired: {}, pending: {}, news: [], newsSeq: 0,
@@ -130,7 +156,8 @@ export function newGame(scenId, settings = {}) {
     const C = S.C[tag]; if (!C || !o.nm) continue;
     for (const [yy, n] of o.nm) if (y >= yy) C.name = n;
   }
-  // 部隊部署
+  // 科技與部隊部署
+  assignTechs(S, sc.id);
   deployArmies(S, ARMIES[sc.id] || {}, THREATS[sc.id] || {});
   // 法律
   for (const t of liveTags(S)) {
@@ -164,6 +191,10 @@ function setup1936(S, A) {
   S.C.SOV.mods.att -= 0.15; S.C.SOV.mods.def -= 0.08;
   (S.temp || (S.temp = [])).push({ tag: 'SOV', key: 'att', val: -0.15, until: strToDay('1942-07-01') }, { tag: 'SOV', key: 'def', val: -0.08, until: strToDay('1942-07-01') });
   S.C.CHI.mods.def += 0.15;
+  // 國共內戰（1927–1936）：開局即處於交戰狀態。AI 雙方不主動進攻，直到西安事變停戰；玩家可自由進攻。
+  setWar(S, 'CHI', 'PRC');
+  S.flags['civil:CHI|PRC'] = true;
+  (S.lim || (S.lim = {}))['CHI|PRC'] = { CHI: [], PRC: [] };
   // 日本「本土決戰」：投降門檻較低（需失去更多勝利點才會投降），直到原子彈事件
   S.C.JAP.capMod = 0.55;
   // 義衣戰爭
@@ -182,6 +213,10 @@ function setup1936(S, A) {
 
 // ---------------------------------------------------------------- 1939
 function setup1939(S, A) {
+  // 國共停戰（西安事變後的第二次國共合作）
+  if (atWar(S, 'CHI', 'PRC')) delete S.wars['CHI|PRC'];
+  if (S.lim) delete S.lim['CHI|PRC'];
+  S.flags.xian_accept = true;
   // 衣索比亞、阿爾巴尼亞併入義大利
   if (atWar(S, 'ITA', 'ETH')) delete S.wars['ETH|ITA'];
   S.wv++;
@@ -202,6 +237,7 @@ function setup1939(S, A) {
   S.C.CHI.cap = ridx('chi_chongqing');
   for (const [a, b] of [['JAP', 'CHI'], ['JAP', 'PRC'], ['MAN', 'CHI'], ['MAN', 'PRC']]) setWar(S, a, b);
   S.C.CHI.nap.PRC = S.day + 3650; S.C.PRC.nap.CHI = S.day + 3650;
+  chinaWarLimits(A);
   // 軸心國與保證
   makeFaction(S, 'axis', '軸心國', 'GER', ['ITA']);
   S.C.SLO.subj = 'GER'; joinFaction(S, 'SLO', 'axis');
@@ -406,9 +442,19 @@ export function deployArmies(S, spec, threats) {
         ww[k] *= 0.7;
       }
     };
-    for (const type of ['inf', 'arm', 'mec', 'mar']) if (sp[type]) placeLand(type, existing ? Math.max(0, sp[type] - (type === 'inf' ? existing : 0)) : sp[type]);
+    for (const type of ['inf', 'arm', 'mec', 'mar']) if (sp[type]) placeLand(fitType(S, t, type), existing ? Math.max(0, sp[type] - (type === 'inf' ? existing : 0)) : sp[type]);
     const best = regs.slice().sort((a, b) => w[regs.indexOf(b)] - w[regs.indexOf(a)]);
-    for (const type of ['ftr', 'bmb']) for (let i = 0; i < (sp[type] || 0); i++) spawnUnit(S, t, type, i % 2 === 0 ? C.cap : best[i % Math.min(3, best.length)]);
-    for (const type of ['flt', 'sub']) for (let i = 0; i < (sp[type] || 0); i++) { const z = deployRegion(S, t, type); if (z !== undefined) spawnUnit(S, t, type, z); }
+    for (const type of ['ftr', 'bmb', 'cas', 'str', 'nvb']) for (let i = 0; i < (sp[type] || 0); i++) {
+      // 部分戰術轟炸機改為該國已有的俯衝轟炸機／海軍轟炸機
+      let ty = fitType(S, t, type);
+      if (ty === 'bmb' && i % 3 === 1 && hasTech(C, 'cas1')) ty = 'cas';
+      else if (ty === 'bmb' && i % 3 === 2 && WORLD.countries[t].navy && hasTech(C, 'nvb1')) ty = 'nvb';
+      spawnUnit(S, t, ty, i % 2 === 0 ? C.cap : best[i % Math.min(3, best.length)]);
+    }
+    for (const type of ['flt', 'car', 'sub']) for (let i = 0; i < (sp[type] || 0); i++) {
+      // 重視海軍的國家：約三分之一的主力艦隊為航艦
+      const ty = type === 'flt' && i % 3 === 2 && WORLD.countries[t].navy && hasTech(C, 'cv1') ? 'car' : type;
+      const z = deployRegion(S, t, ty); if (z !== undefined) spawnUnit(S, t, ty, z);
+    }
   }
 }

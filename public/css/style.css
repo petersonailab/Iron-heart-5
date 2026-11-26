@@ -205,3 +205,101 @@ button.big { font-size: 17px; padding: 12px; }
   #chat { right: 70px; bottom: 62px; width: calc(100% - 84px); }
   .menu-box h1 { font-size: 34px; }
 }
+
+/* ---------------- 科技樹 / 國策樹 */
+#tree { position: fixed; inset: 0; z-index: 40; background: radial-gradient(ellipse at top, #1b2430 0%, #0c1016 75%); display: flex; flex-direction: column; color: var(--text); }
+#tree .thead { display: flex; align-items: center; gap: 12px; padding: 10px 14px; border-bottom: 1px solid var(--line); background: rgba(12,16,22,.85); flex-wrap: wrap; }
+#tree .thead h3 { margin: 0; font-size: 19px; color: var(--gold2); letter-spacing: 2px; }
+#tree .slots { flex: 1; display: flex; gap: 6px; flex-wrap: wrap; align-items: center; font-size: 13px; color: var(--dim); }
+#tree .slot { border: 1px dashed #4a5768; border-radius: 6px; padding: 3px 8px; color: var(--dim); }
+#tree .slot.cur { border: 1px solid #4f9a5c; color: #cfe9c8; background: rgba(60,120,70,.18); }
+#tree .ttabs { display: flex; gap: 4px; padding: 8px 12px 0; flex-wrap: wrap; border-bottom: 1px solid var(--line); }
+#tree .ttab { background: #1a212b; color: var(--dim); border: 1px solid var(--line); border-bottom: none; border-radius: 8px 8px 0 0; padding: 7px 12px; cursor: pointer; font-size: 14px; position: relative; }
+#tree .ttab small { color: #7f8a96; }
+#tree .ttab.on { background: #273141; color: var(--gold2); border-color: #5d6b7c; }
+#tree .ttab .dotg { position: absolute; top: 4px; right: 4px; width: 7px; height: 7px; border-radius: 50%; background: var(--gold); }
+#tree .tlegend { display: flex; gap: 10px; align-items: center; padding: 6px 14px; font-size: 12px; color: var(--dim); flex-wrap: wrap; }
+#tree .tlegend .lg { padding: 2px 8px; border-radius: 5px; border: 1px solid; }
+#tree .tlegend .hint { margin-left: auto; }
+.lg.done { border-color: #b08f45; background: #3b321c; color: #f0d58e; }
+.lg.cur { border-color: #5aa56a; background: #1f3a26; color: #c6efc8; }
+.lg.avail { border-color: #8aa2bd; background: #22303f; color: #e4ecf5; }
+.lg.ahead { border-color: #c98a3d; background: #3a2a18; color: #f2c48a; }
+.lg.locked { border-color: #3a434f; background: #161b22; color: #6f7883; }
+.lg.excl { border-color: #8a3a35; background: #2a1514; color: #d99; }
+#tree .tbody { flex: 1; overflow: auto; position: relative; -webkit-overflow-scrolling: touch; }
+#tree .tcanvas { position: relative; }
+#tree svg { position: absolute; left: 0; top: 0; pointer-events: none; }
+#tree svg path { fill: none; stroke: #3d4856; stroke-width: 2; }
+#tree svg path.ok { stroke: #b08f45; }
+#tree svg path.any { stroke-dasharray: 5 4; }
+#tree .ticks .tick { position: absolute; top: 8px; font-size: 11px; color: #6f7c8a; transform: translateX(-50%); }
+#tree .ticks .tick::after { content: ''; position: absolute; left: 50%; top: 16px; width: 1px; height: 2400px; background: rgba(120,140,160,.07); }
+#tree .nowline { position: absolute; top: 0; bottom: 0; width: 2px; background: linear-gradient(#d9ae55, rgba(217,174,85,.1)); }
+#tree .nowline span { position: absolute; top: 24px; left: 4px; font-size: 11px; color: var(--gold2); white-space: nowrap; }
+#tree .lane { position: absolute; left: 8px; width: 100px; height: 58px; display: flex; align-items: center; font-size: 12px; color: #8d98a4; border-left: 3px solid #3a4553; padding-left: 6px; }
+.tn { position: absolute; width: 150px; height: 58px; border-radius: 8px; border: 1px solid #3a434f; background: linear-gradient(#1b222c, #141920); padding: 4px 7px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.4); overflow: hidden; transition: transform .1s, box-shadow .1s; }
+.tn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.6); z-index: 2; }
+.tn-h { display: flex; gap: 4px; align-items: center; }
+.tn-y { font-size: 11px; color: #8d98a4; }
+.tn-u { font-size: 10px; padding: 0 4px; border-radius: 3px; background: #2f4a63; color: #bcd8f2; }
+.tn-u.sp { background: #5a2d2d; color: #f3c0c0; }
+.tn-n { font-size: 13px; font-weight: 600; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tn-s { font-size: 11px; color: #8d98a4; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.tn.done { border-color: #b08f45; background: linear-gradient(#3e3420, #2a2416); }
+.tn.done .tn-n { color: #f3d89a; }
+.tn.cur { border-color: #5aa56a; background: linear-gradient(#24432c, #18301f); box-shadow: 0 0 0 1px #5aa56a, 0 0 14px rgba(90,165,106,.4); }
+.tn.avail { border-color: #8aa2bd; background: linear-gradient(#273546, #1c2734); }
+.tn.avail .tn-s { color: #cfe0f0; }
+.tn.ahead { border-color: #c98a3d; }
+.tn.ahead .tn-s { color: #f2c48a; }
+.tn.locked { opacity: .62; }
+.tn-bar { position: absolute; left: 0; right: 0; bottom: 0; height: 3px; background: rgba(0,0,0,.4); }
+.tn-bar i { display: block; height: 100%; background: #6fd17f; }
+.fn { position: absolute; width: 142px; height: 66px; border-radius: 9px; border: 1px solid #3a434f; background: linear-gradient(#1b222c, #141920); padding: 4px 6px 4px 34px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.45); transition: transform .1s; }
+.fn:hover { transform: translateY(-1px); z-index: 2; }
+.fn-i { position: absolute; left: 5px; top: 8px; width: 24px; height: 24px; border-radius: 50%; display: grid; place-items: center; font-size: 14px; background: #10151c; border: 1px solid #3a434f; }
+.fn-n { font-size: 13px; font-weight: 600; line-height: 1.25; max-height: 34px; overflow: hidden; }
+.fn-s { font-size: 11px; color: #8d98a4; margin-top: 2px; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; }
+.fn-h { position: absolute; right: 4px; bottom: 4px; font-style: normal; font-size: 10px; color: #d9ae55; border: 1px solid #8a7038; border-radius: 3px; padding: 0 3px; }
+.fn-x { position: absolute; right: 4px; top: 3px; font-style: normal; font-size: 12px; color: #e07a6a; }
+.fn.done { border-color: #b08f45; background: linear-gradient(#3e3420, #2a2416); }
+.fn.done .fn-n { color: #f3d89a; }
+.fn.done .fn-i { border-color: #b08f45; }
+.fn.cur { border-color: #5aa56a; background: linear-gradient(#24432c, #18301f); box-shadow: 0 0 0 1px #5aa56a, 0 0 14px rgba(90,165,106,.4); }
+.fn.avail { border-color: #8aa2bd; background: linear-gradient(#273546, #1c2734); }
+.fn.avail.wait { border-style: dashed; }
+.fn.excl { border-color: #6a2f2b; background: #1b1212; opacity: .6; }
+.fn.locked { opacity: .6; }
+.xmark { position: absolute; width: 20px; height: 20px; border-radius: 50%; background: #3a1715; border: 1px solid #b0483d; color: #ff9a8a; font-size: 12px; display: grid; place-items: center; z-index: 1; }
+.btn.wide { display: block; width: 100%; margin: 4px 0 8px; }
+.tagh { color: #d9ae55; border: 1px solid #8a7038; border-radius: 3px; padding: 0 3px; font-size: 10px; }
+.tagx { color: #e07a6a; font-size: 12px; }
+.ugroup { grid-column: 1 / -1; font-size: 12px; color: var(--gold2); margin: 6px 0 0; border-bottom: 1px solid var(--line); padding-bottom: 2px; }
+.unitbtns .btn .lock { color: #d88; }
+.ui-ic { display: inline-block; vertical-align: -3px; margin-right: 4px; }
+svg.gl { width: 22px; height: 15px; vertical-align: -3px; color: #e8dcc0; }
+@media (max-width: 760px) {
+  #tree .thead h3 { font-size: 16px; }
+  #tree .tlegend .hint { display: none; }
+}
+
+/* ---------------- 國旗與事件視窗 */
+img.sw.fl { width: 18px; height: 12px; border-radius: 2px; object-fit: cover; border: 1px solid rgba(0,0,0,.55); vertical-align: -2px; background: #333; }
+#hud .flag img.hflag { width: 30px; height: 20px; border-radius: 3px; border: 1px solid rgba(0,0,0,.6); box-shadow: 0 1px 3px rgba(0,0,0,.5); object-fit: cover; }
+img.flg { width: 24px; height: 16px; border-radius: 2px; border: 1px solid rgba(0,0,0,.5); object-fit: cover; vertical-align: -3px; }
+img.flg.big { width: 66px; height: 44px; border-radius: 4px; box-shadow: 0 3px 10px rgba(0,0,0,.6); border: 1px solid rgba(255,255,255,.25); }
+.evcard { margin: 0; }
+.evbanner { position: relative; padding: 16px 16px 12px; min-height: 64px; background: linear-gradient(135deg, #3a2f1a, #1b1f27 70%); border-bottom: 1px solid #5a4a2a; display: flex; align-items: center; gap: 14px; border-radius: 12px 12px 0 0; }
+.ev-war .evbanner, .ev-crisis .evbanner { background: linear-gradient(135deg, #5a1e18, #1b1f27 70%); border-bottom-color: #7a3a30; }
+.ev-world .evbanner { background: linear-gradient(135deg, #1e3a5a, #1b1f27 70%); border-bottom-color: #34587a; }
+.evkind { font-size: 13px; letter-spacing: 2px; color: var(--gold2); background: rgba(0,0,0,.35); border: 1px solid rgba(255,255,255,.15); padding: 4px 10px; border-radius: 20px; white-space: nowrap; }
+.evflags { display: flex; gap: 12px; flex-wrap: wrap; margin-left: auto; }
+.evflag { display: flex; flex-direction: column; align-items: center; gap: 3px; }
+.evflag small { font-size: 11px; color: #d8cfbd; max-width: 80px; text-align: center; }
+.evcard header { padding: 12px 18px 4px !important; border: none !important; background: none !important; }
+.evcard header h3 { font-size: 22px !important; color: var(--gold2); }
+.evtext { padding: 4px 16px 10px !important; font-size: 15px; line-height: 1.75; }
+.evopts { display: flex; flex-direction: column; gap: 7px; padding: 4px 16px 10px !important; }
+.evopts .btn { text-align: left; }
+.evhint { font-size: 12px; color: var(--dim); padding: 0 16px 14px; }
