@@ -62,18 +62,20 @@ function aiEconomy(S, t) {
   for (let r = 0; r < R; r++) if (S.own[r] === t && S.ctrl[r] === t && S.core[r] === t && S.ind[r] < regionIndCap(r)) { factoriesFree = true; break; }
   const aggr = C.ideo === 'fas' || C.ideo === 'com' ? 2 : 1;
   let nRegions = 0; for (let r = 0; r < R; r++) if (S.own[r] === t) nRegions++;
-  const peaceCap = Math.max(3 + nRegions * 0.8, 3 + ic * 0.22 * aggr) + (S.tension > 50 ? ic * 0.15 * aggr : 0);
+  // 和平時期的陸軍上限（工業很大時也不會無限擴軍）
+  const peaceCap = Math.min(Math.max(3 + nRegions * 0.8, 3 + ic * 0.22 * aggr) + (S.tension > 50 ? ic * 0.15 * aggr : 0), 25 + nRegions * 2.5);
   // 和平時期裁軍：超出上限太多時解散最弱的部隊（開局一年內不裁軍）
   if (!war && land > peaceCap * 1.4 && C.ai && S.day > (S.startDay || 0) + 365) {
     const mine = S.units.filter(u => u.c === t && !u.dead && isLandUnit(u) && !u.path.length).sort((a, b) => a.hp - b.hp);
     for (const u of mine.slice(0, Math.min(3, Math.ceil(land - peaceCap * 1.4)))) { u.dead = true; C.man += UNITS[u.t].man * 0.5; }
   }
-  const upkeepHeavy = (C.upkeep || 0) > ic * 0.75;
+  const upkeepHeavy = (C.upkeep || 0) > ic * 0.65;
   const threatened = (C.surrender || 0) > 0.1;
   if (!war && factoriesFree && ic > 2 && (S.tension < 45 || land > peaceCap * 0.7)) want.push(['factory', 1]);
   if (war && factoriesFree && ic > 40 && !threatened && rand(S) < 0.4) want.push(['factory', 1]);
   const manOk = C.man > 30;
-  if (manOk && (war || land < peaceCap) && !upkeepHeavy) {
+  // 戰時的陸軍上限較高，但不會無限制擴編（避免冷戰後期部隊數量爆炸）
+  if (manOk && land < (war ? peaceCap * 2.2 : peaceCap) && !upkeepHeavy) {
     want.push(['inf', war ? 3 : 2]);
     const tank = bestOf(['mbt', 'arm', 'ltk']);
     if (tank && ic >= 10 && tanks < land * (major ? 0.4 : 0.22) + 1) {

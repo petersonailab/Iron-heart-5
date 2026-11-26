@@ -237,7 +237,7 @@ function aiBorderWar(S) {
       if (h === a || h === b) continue;
       const near = borderMap(S, h);
       if (!near.has(a) && !near.has(b) && y > 0) continue;
-      worldReact(S, { id: 'border_war', title: '邊境衝突', kind: 'war', text: `${cname(S, a)}與${cname(S, b)}因邊界爭議爆發戰爭。你的國家與交戰國相鄰，要如何應對？` }, [[a, b]], null, h);
+      worldReact(S, { id: 'border_war', title: '邊境衝突', kind: 'war', text: `${cname(S, a)}與${cname(S, b)}因邊界爭議爆發戰爭（虛構事件）。你的國家與交戰國相鄰，要如何應對？` }, [[a, b]], null, h);
     }
     return;
   }

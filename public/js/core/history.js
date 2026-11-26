@@ -7,7 +7,7 @@ import {
 } from './engine.js';
 import { pushPrompt, PROMPT_HANDLERS } from './commands.js';
 import { beginCapture, endCapture, worldReact, inferTags } from './worldevents.js';
-import { strToDay, yearOf, dayToDate } from './util.js';
+import { strToDay, yearOf, dayToDate, rand } from './util.js';
 import { UNITS } from '../data/rules.js';
 
 const R = WORLD.R, nodes = WORLD.nodes;
@@ -213,7 +213,7 @@ function onCapitulate(S, tag, main) {
     for (let r = 0; r < R; r++) relocateHostile(S, r);
     return true;
   }
-  if (tag === 'GER' && westMain && S.set.hist) {
+  if (tag === 'GER' && (westMain || (main && main !== 'GER')) && S.set.hist) {
     A.news('德國無條件投降，歐洲戰事結束。德國被盟國分區佔領，奧得-尼斯河以東領土劃歸波蘭與蘇聯。');
     for (const e of [...enemySet(S, 'GER')]) delete S.wars[[e, 'GER'].sort().join('|')];
     S.wv++;
@@ -221,7 +221,7 @@ function onCapitulate(S, tag, main) {
     S.flags.vEDay = S.day;
     return true;
   }
-  if (tag === 'JAP' && westMain && S.set.hist) {
+  if (tag === 'JAP' && (westMain || (main && main !== 'JAP')) && S.set.hist) {
     A.news('日本宣布無條件投降，第二次世界大戰結束。朝鮮半島以北緯 38 度線分由蘇美佔領，臺灣與滿洲歸還中國。');
     japanSettlement(S, A);
     S.flags.vjDay = S.day;
@@ -562,13 +562,13 @@ ev({ id: 'brazil_war', date: '1942-08-22', until: '1945-01-01', kind: 'war', tit
 const sovHQ = (A, id) => (A.ctrls('SOV', id) ? id : A.S.C.SOV.cap);
 ev({ id: 'moscow_winter', date: '1941-12-05', until: '1942-03-01', kind: 'war', title: '莫斯科保衛戰', cond: A => A.atWar('GER', 'SOV') && A.exists('SOV'),
   text: '德軍在嚴冬中兵臨莫斯科城下，卻因補給斷絕與酷寒而寸步難行。朱可夫指揮從西伯利亞調來的生力軍發動反攻。',
-  fire: A => { A.tempMod('GER', 'att', -0.2, 100); A.tempMod('SOV', 'def', 0.15, 100); A.units('SOV', { inf: 6 }, sovHQ(A, 'sov_moscow')); } });
+  fire: A => { A.tempMod('GER', 'att', -0.15, 90); A.tempMod('SOV', 'def', 0.1, 90); A.units('SOV', { inf: 4 }, sovHQ(A, 'sov_moscow')); } });
 ev({ id: 'uranus', date: '1942-11-19', until: '1943-03-01', kind: 'war', title: '天王星行動', cond: A => A.atWar('GER', 'SOV') && A.exists('SOV'),
   text: '紅軍從南北兩翼突破羅馬尼亞軍防線，包圍史達林格勒的德軍第六軍團。',
-  fire: A => { A.tempMod('SOV', 'att', 0.15, 120); A.tempMod('GER', 'att', -0.1, 90); A.units('SOV', { inf: 4, arm: 2 }, sovHQ(A, 'sov_stalingrad')); } });
+  fire: A => { A.tempMod('SOV', 'att', 0.1, 90); A.tempMod('GER', 'att', -0.05, 60); A.units('SOV', { inf: 3, arm: 1 }, sovHQ(A, 'sov_stalingrad')); } });
 ev({ id: 'kursk', date: '1943-07-05', until: '1943-12-31', kind: 'news', title: '庫斯克會戰', cond: A => A.atWar('GER', 'SOV') && A.exists('SOV'),
   text: '史上規模最大的坦克會戰。德軍「堡壘行動」攻勢失敗，此後東線的戰略主動權完全轉到蘇聯手中。',
-  fire: A => { A.tempMod('SOV', 'def', 0.15, 45); A.tempMod('SOV', 'att', 0.08, 150); } });
+  fire: A => { A.tempMod('SOV', 'def', 0.1, 45); A.tempMod('SOV', 'att', 0.05, 90); } });
 ev({ id: 'stalingrad', date: '1942-08-23', kind: 'news', title: '史達林格勒戰役', cond: A => A.atWar('GER', 'SOV') && A.exists('SOV'), text: '德軍進抵伏爾加河畔的史達林格勒，城市在激烈巷戰中化為廢墟。這場戰役最終成為東線戰爭的轉捩點。' });
 ev({ id: 'torch', date: '1942-11-08', until: '1944-06-01', kind: 'war', title: '火炬行動', cond: A => A.exists('VIC') && A.exists('USA') && A.atWar('GER', 'USA') && A.owns('VIC', 'fra_algiers'),
   text: '美英聯軍在法屬北非登陸。維琪軍隊短暫抵抗後倒戈加入盟軍；德軍隨即佔領維琪法國本土並搶運部隊進入突尼西亞。',
@@ -624,7 +624,7 @@ ev({ id: 'overlord', date: '1944-06-06', until: '1945-06-01', kind: 'war', title
     if (A.isAI('CAN')) A.invade('CAN', 'fra_normandy', { inf: 2 }, 'sea_channel');
     if (A.isAI('USA')) A.units('USA', { ftr: 3, bmb: 2 }, 'eng_london');
   } });
-ev({ id: 'bagration', date: '1944-06-22', kind: 'news', title: '巴格拉季昂行動', cond: A => A.atWar('GER', 'SOV'), text: '紅軍在白俄羅斯發動夏季大攻勢，德軍中央集團軍群幾乎全軍覆沒。', fire: A => { A.tempMod('SOV', 'att', 0.15, 120); A.tempMod('GER', 'def', -0.1, 120); } });
+ev({ id: 'bagration', date: '1944-06-22', kind: 'news', title: '巴格拉季昂行動', cond: A => A.atWar('GER', 'SOV'), text: '紅軍在白俄羅斯發動夏季大攻勢，德軍中央集團軍群幾乎全軍覆沒。', fire: A => { A.tempMod('SOV', 'att', 0.1, 90); A.tempMod('GER', 'def', -0.05, 90); } });
 ev({ id: 'dragoon', date: '1944-08-15', until: '1945-03-01', kind: 'war', title: '龍騎兵行動', cond: A => A.exists('GER') && A.atWar('GER', 'USA') && A.ctrl('fra_marseille') && A.atWar(A.ctrl('fra_marseille'), 'USA'),
   text: '美法聯軍在法國南部普羅旺斯海岸登陸。', fire: A => { if (A.isAI('USA')) A.invade('USA', 'fra_marseille', { inf: 3, arm: 1 }, 'sea_westmed'); if (A.isAI('FRA')) A.invade('FRA', 'fra_marseille', { inf: 2 }, 'sea_westmed'); } });
 ev({ id: 'warsaw_uprising', date: '1944-08-01', kind: 'news', title: '華沙起義', cond: A => A.ctrls('GER', 'pol_warsaw') && A.atWar('GER', 'SOV'), text: '波蘭家鄉軍在華沙起義，經六十三天血戰後失敗，華沙幾乎被夷為平地。' });
@@ -723,10 +723,16 @@ ev({ id: 'chinese_civil_war', date: '1946-06-26', until: '1949-12-31', kind: 'wa
     delete S.C.CHI.nap.PRC; delete S.C.PRC.nap.CHI;
     // 蘇聯將滿洲移交共軍
     for (let r = 0; r < R; r++) if (S.own[r] === 'SOV' && S.core[r] === 'CHI') transferRegion(S, r, 'PRC');
+    // 中共的解放區：陝甘寧、晉察冀、山東，以及北滿的農村
+    A.give(['chi_chahar', 'chi_datong', 'chi_shijiazhuang', 'chi_jinan', 'man_harbin', 'man_qiqihar', 'man_mudanjiang', 'man_heihe'], 'PRC', { onlyFrom: 'CHI' });
+    A.S.C.PRC.capMod = 0.5;
     A.units('PRC', { inf: 8 }, 'prc_yanan');
+    for (const id of ['chi_shijiazhuang', 'chi_jinan', 'man_harbin']) if (A.ctrls('PRC', id)) A.units('PRC', { inf: 3 }, id);
     const mr = A.regionsOf('PRC').filter(r => nodes[r].id.startsWith('man_'));
     if (mr.length) A.units('PRC', { inf: 6, arm: 1 }, mr[0]);
     A.S.C.PRC.mods.att += 0.25; A.S.C.PRC.mods.def += 0.1;
+    // 接收日軍與蘇聯移交的武器：科技水準追上國軍
+    if (A.exists('CHI')) A.grant('PRC', A.S.C.CHI.techs);
     A.units('PRC', { inf: 10 }, 'prc_yanan');
     A.tempMod('CHI', 'att', -0.35, 1300); A.tempMod('CHI', 'def', -0.3, 1300);
     for (const u of A.S.units) if (u.c === 'CHI' && !u.dead && u.n < R && nodes[u.n].mod === 'CHN' && Math.random() < 0.3) u.c = 'PRC';
@@ -795,8 +801,22 @@ ev({ id: 'soviet_bomb', date: '1949-08-29', kind: 'struct', title: '蘇聯第一
   text: '蘇聯在哈薩克的塞米巴拉金斯克試爆第一顆原子彈，美國的核壟斷結束。', fire: A => { A.grant('SOV', ['nuc0', 'nuc1']); A.S.C.SOV.nukes += 1; } });
 ev({ id: 'prc_founded', date: '1949-10-01', until: '1955-12-31', kind: 'struct', title: '中華人民共和國成立', cond: A => A.exists('PRC') && A.ctrls('PRC', 'chi_beiping'),
   text: '毛澤東在北京天安門城樓宣布中華人民共和國成立。', fire: A => { A.rename('PRC', '中華人民共和國'); A.S.C.PRC.cap = A.rid('chi_beiping'); if (A.S.fac.comintern) A.join('PRC', 'comintern'); } });
-ev({ id: 'roc_taiwan', date: '1949-12-07', until: '1960-12-31', kind: 'struct', title: '中華民國政府遷臺', cond: A => A.exists('CHI') && A.owns('CHI', 'jap_taipei') && !A.ctrls('CHI', 'chi_chongqing') && !A.ctrls('CHI', 'chi_nanjing'),
-  text: '國民政府撤退至臺灣，兩岸隔海對峙的局面就此形成。', fire: A => { A.S.C.CHI.cap = A.rid('jap_taipei'); A.rename('CHI', '中華民國 (臺灣)'); } });
+ev({ id: 'roc_taiwan', date: '1949-12-07', until: '1960-12-31', kind: 'struct', title: '中華民國政府遷臺',
+  // AI 扮演國民政府時依史實在 1949 年底撤退；真人玩家則要失去南京與重慶才會遷臺
+  cond: A => A.exists('CHI') && A.owns('CHI', 'jap_taipei') && (A.isAI('CHI') && A.exists('PRC') && A.S.set.hist ? A.ctrls('PRC', 'chi_beiping') : (!A.ctrls('CHI', 'chi_chongqing') && !A.ctrls('CHI', 'chi_nanjing'))),
+  text: '國民政府撤退至臺灣，兩岸隔海對峙的局面就此形成。',
+  fire: A => {
+    const S = A.S, tp = A.rid('jap_taipei');
+    if (A.isAI('CHI') && A.exists('PRC')) {
+      // 大陸上剩餘的國軍控制區由共軍接收，約三分之一國軍撤往臺灣，其餘投共或解散
+      for (let r = 0; r < R; r++) if (S.ctrl[r] === 'CHI' && nodes[r].mod === 'CHN') { S.own[r] = 'PRC'; S.ctrl[r] = 'PRC'; S.core[r] = 'PRC'; }
+      let k = 0;
+      for (const u of S.units) if (u.c === 'CHI' && !u.dead && u.n < R && nodes[u.n].mod === 'CHN') { if (k++ % 3 === 0) { u.n = tp; u.path = []; u.prog = 0; } else u.c = 'PRC'; }
+      if (A.atWar('CHI', 'PRC')) A.peace('CHI', 'PRC', 'status', true);
+      for (let r = 0; r < R; r++) relocateHostile(S, r);
+    }
+    S.C.CHI.cap = tp; A.rename('CHI', '中華民國 (臺灣)');
+  } });
 ev({ id: 'korea_states', date: '1948-08-15', kind: 'struct', title: '朝鮮半島分裂', cond: A => !A.exists('KOR') && !A.exists('PRK') && A.has('japanSettled'),
   text: '南方成立大韓民國，北方成立朝鮮民主主義人民共和國，兩國都宣稱自己代表整個朝鮮。',
   fire: A => {
@@ -822,7 +842,7 @@ ev({ id: 'korean_war', date: '1950-06-25', until: '1953-01-01', kind: 'war', tit
 ev({ id: 'un_korea', date: '1950-06-27', until: '1953-01-01', kind: 'war', title: '聯合國軍介入', cond: A => A.atWar('PRK', 'KOR') && A.exists('USA') && !A.atWar('USA', 'PRK'),
   text: '聯合國安理會在蘇聯缺席下通過決議，以美國為首的十六國組成聯合國軍援助南韓。',
   fire: A => {
-    for (const t of ['USA', 'ENG', 'CAN', 'AST', 'TUR', 'FRA', 'NZL', 'PHI', 'GRE', 'SIA', 'BEL', 'HOL', 'COL', 'ETH', 'SAF', 'LUX']) if (A.exists(t) && A.S.C[t].ideo !== 'com') A.setWar(t, 'PRK');
+    for (const t of ['USA', 'ENG', 'CAN', 'AST', 'TUR', 'FRA', 'NZL', 'PHI', 'GRE', 'SIA', 'BEL', 'HOL', 'COL', 'ETH', 'SAF', 'LUX']) if (A.exists(t) && A.S.C[t].ideo !== 'com') { A.setWar(t, 'PRK'); A.limit(t, 'PRK', KOREA_N, KOREA_S); }
     if (A.isAI('USA')) A.units('USA', { inf: 4, arm: 1, ftr: 3 }, 'jap_busan');
     if (A.isAI('ENG')) A.units('ENG', { inf: 1 }, 'jap_busan');
     A.news('聯合國軍開始在釜山登陸。', 'war');
@@ -833,7 +853,7 @@ ev({ id: 'china_korea', date: '1950-10-19', until: '1953-07-01', kind: 'war', ti
   cond: A => A.exists('PRC') && A.atWar('PRK', 'KOR') && !A.atWar('PRC', 'KOR') && (A.ctrlAny('USA', KOREA_N) || A.ctrlAny('KOR', KOREA_N) || A.ctrlAny('USA', ['jap_seoul']) || A.ctrlAny('KOR', ['jap_seoul']) && A.S.day > strToDay('1950-09-20')),
   text: '聯合國軍逼近鴨綠江，中共決定以「中國人民志願軍」名義出兵朝鮮。',
   opts: [{ t: '出兵朝鮮（歷史）', fx: A => {
-    for (const e of [...enemySet(A.S, 'PRK')]) A.setWar('PRC', e);
+    for (const e of [...enemySet(A.S, 'PRK')]) { A.setWar('PRC', e); A.limit('PRC', e, KOREA_S.concat(KOREA_N), KOREA_N); }
     const S = A.S; const front = KOREA_N.map(A.rid).filter(r => S.ctrl[r] === 'PRK');
     if (A.isAI('PRC')) { A.units('PRC', { inf: 6 }, front.length ? front[0] : 'man_mukden'); A.units('PRC', { inf: 8 }, 'man_mukden'); }
     if (A.exists('PRK')) A.S.C.PRK.capMod = 0.3;
@@ -1059,6 +1079,14 @@ function safeRegion(S, tag) {
 }
 function historyGuide(S, A) {
   const y = yearOf(S.day);
+  // 國共內戰（1946–1950）：國軍士氣崩潰、大批部隊倒戈（史實上約有一百七十萬國軍投共）
+  if (y >= 1946 && y <= 1950 && A.exists('CHI') && A.exists('PRC') && A.atWar('CHI', 'PRC') && A.S.flags['civil:CHI|PRC']) {
+    if (A.isAI('CHI')) {
+      const mainland = S.units.filter(u => u.c === 'CHI' && !u.dead && isLandUnit(u) && u.n < R && nodes[u.n].mod === 'CHN' && !u.path.length);
+      for (const u of mainland) if (rand(S) < 0.05) { u.c = 'PRC'; u.auto = false; }
+    }
+    if (A.isAI('PRC')) { const r = safeRegion(S, 'PRC'); if (r >= 0) A.units('PRC', { inf: 2 }, r); }
+  }
   if (y < 1941 || y > 1945) return;
   // 東線：蘇聯的總動員與後方新編部隊
   if (A.exists('SOV') && A.exists('GER') && A.atWar('GER', 'SOV') && A.isAI('SOV') && S.day >= strToDay('1941-09-01')) {
@@ -1164,7 +1192,8 @@ function updateNames(S) {
     const def = WORLD.countries[t]; const C = S.C[t];
     if (!def || !def.nm || !C.exists || C.customName) continue;
     let nm = null; for (const [yy, n] of def.nm) if (y >= yy) nm = n;
-    if (nm && C.name !== nm && !C.name.includes('(臺灣)') && C.name !== '自由法國') C.name = nm;
+    if (C.name === '自由法國' && S.ctrl[WORLD.idx.get('fra_paris')] === t) C.name = nm || def.name;
+    else if (nm && C.name !== nm && !C.name.includes('(臺灣)') && C.name !== '自由法國') C.name = nm;
   }
 }
 // 掛勾
