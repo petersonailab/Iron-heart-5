@@ -48,7 +48,7 @@ export const COUNTRY_DEFS = [
   ['ETH', '衣索比亞', '#7aa84a', 'neu', 'eth_addis', { full: '衣索比亞帝國' }],
   ['LIB', '賴比瑞亞', '#6a5aa8', 'dem', 'lib_monrovia', { full: '賴比瑞亞共和國' }],
   ['SAF', '南非', '#c48a4a', 'dem', 'saf_pretoria', { full: '南非聯邦' }],
-  ['CAN', '加拿大', '#c46a6a', 'dem', 'can_ottawa', { full: '加拿大自治領' }],
+  ['CAN', '加拿大', '#b84a35', 'dem', 'can_ottawa', { full: '加拿大自治領' }],
   ['AST', '澳大利亞', '#d18a4f', 'dem', 'ast_sydney', { full: '澳大利亞聯邦' }],
   ['NZL', '紐西蘭', '#8a6ab0', 'dem', 'nzl_auckland', { full: '紐西蘭自治領' }],
   ['RAJ', '英屬印度', '#e89a7a', 'dem', 'raj_delhi', { cap: 0.3, full: '英屬印度' }],

@@ -256,6 +256,7 @@ function setup1950(S, A) {
   // 日本
   A.give(['jap_karafuto'], 'SOV', { core: true });
   A.give(['jap_okinawa', 'jap_iwojima', 'jap_palau', 'jap_saipan', 'jap_truk', 'jap_kwajalein'], 'USA');
+  A.give(['eng_newfoundland', 'eng_labrador'], 'CAN', { core: true });
   A.create('KOR', LISTS.KOREA_S, { ideo: 'dem', units: 0 });
   A.create('PRK', LISTS.KOREA_N, { ideo: 'com', units: 0 });
   S.C.JAP.ideo = 'dem';
@@ -353,6 +354,7 @@ function setup1979(S, A) {
   if (alive(S, 'KAT')) A.annex('KAT', 'COG');
   if (alive(S, 'BIA')) A.annex('BIA', 'NIG');
   if (alive(S, 'SIN') === false && S.own[ridx('eng_singapore')]) A.create('SIN', ['eng_singapore'], { ideo: 'dem', units: 1 });
+  A.give(['jap_okinawa', 'jap_iwojima'], 'JAP');
   setTechAll(S, 8, {
     USA: { inf: 8, arm: 8, air: 9, nav: 9, ind: 9, nuc: 3 }, SOV: { inf: 8, arm: 8, air: 8, nav: 8, ind: 8, nuc: 3 },
     ENG: { nuc: 3 }, FRA: { nuc: 3 }, PRC: { inf: 6, arm: 5, air: 5, nav: 4, ind: 6, nuc: 2 }, ISR: { inf: 8, arm: 8, air: 8 },

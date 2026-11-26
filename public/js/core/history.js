@@ -716,6 +716,12 @@ ev({ id: 'korea_states', date: '1948-08-15', kind: 'struct', title: '朝鮮半�
   } });
 ev({ id: 'jap_independence', date: '1952-04-28', kind: 'struct', title: '舊金山和約生效', cond: A => A.exists('JAP') && A.S.C.JAP.subj,
   text: '日本恢復主權，同時與美國簽訂安保條約。', fire: A => { A.S.C.JAP.subj = null; A.guar('USA', 'JAP'); } });
+ev({ id: 'newfoundland', date: '1949-03-31', kind: 'struct', title: '紐芬蘭加入加拿大', cond: A => A.exists('CAN') && A.owns('ENG', 'eng_newfoundland'),
+  text: '紐芬蘭經公投後成為加拿大的第十個省。', fire: A => A.give(['eng_newfoundland', 'eng_labrador'], 'CAN', { core: true }) });
+ev({ id: 'iwojima_return', date: '1968-06-26', kind: 'struct', title: '小笠原群島歸還日本', cond: A => A.exists('JAP') && A.owns('USA', 'jap_iwojima'),
+  text: '美國將硫磺島等小笠原群島的行政權歸還日本。', fire: A => A.give(['jap_iwojima'], 'JAP') });
+ev({ id: 'okinawa_return', date: '1972-05-15', kind: 'struct', title: '沖繩歸還', cond: A => A.exists('JAP') && A.owns('USA', 'jap_okinawa'),
+  text: '美國將沖繩的施政權歸還日本，但仍保留大規模駐軍。', fire: A => A.give(['jap_okinawa'], 'JAP') });
 ev({ id: 'eritrea', date: '1952-09-15', kind: 'struct', title: '厄利垂亞併入衣索比亞', cond: A => A.exists('ETH') && !A.owns('ETH', 'ita_eritrea'), text: '聯合國決議厄利垂亞與衣索比亞組成聯邦。', fire: A => A.give(['ita_eritrea'], 'ETH') });
 
 // ===== 1950 年代 =====
