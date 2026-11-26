@@ -63,19 +63,20 @@ function aiEconomy(S, t) {
   const aggr = C.ideo === 'fas' || C.ideo === 'com' ? 2 : 1;
   let nRegions = 0; for (let r = 0; r < R; r++) if (S.own[r] === t) nRegions++;
   // 和平時期的陸軍上限（工業很大時也不會無限擴軍）
-  const peaceCap = Math.min(Math.max(3 + nRegions * 0.8, 3 + ic * 0.22 * aggr) + (S.tension > 50 ? ic * 0.15 * aggr : 0), 25 + nRegions * 2.5);
+  const peaceCap = Math.min(Math.max(3 + nRegions * 0.8, 3 + ic * 0.22 * aggr) + (S.tension > 50 ? ic * 0.15 * aggr : 0), 20 + nRegions * 1.6);
   // 和平時期裁軍：超出上限太多時解散最弱的部隊（開局一年內不裁軍）
   if (!war && land > peaceCap * 1.4 && C.ai && S.day > (S.startDay || 0) + 365) {
     const mine = S.units.filter(u => u.c === t && !u.dead && isLandUnit(u) && !u.path.length).sort((a, b) => a.hp - b.hp);
     for (const u of mine.slice(0, Math.min(3, Math.ceil(land - peaceCap * 1.4)))) { u.dead = true; C.man += UNITS[u.t].man * 0.5; }
   }
-  const upkeepHeavy = (C.upkeep || 0) > ic * 0.65;
+  const upkeepHeavy = (C.upkeep || 0) > ic * 0.75;
   const threatened = (C.surrender || 0) > 0.1;
   if (!war && factoriesFree && ic > 2 && (S.tension < 45 || land > peaceCap * 0.7)) want.push(['factory', 1]);
   if (war && factoriesFree && ic > 40 && !threatened && rand(S) < 0.4) want.push(['factory', 1]);
   const manOk = C.man > 30;
-  // 戰時的陸軍上限較高，但不會無限制擴編（避免冷戰後期部隊數量爆炸）
-  if (manOk && land < (war ? peaceCap * 2.2 : peaceCap) && !upkeepHeavy) {
+  // 戰時的陸軍上限：二戰期間與本土遭入侵時不設限；冷戰時期的戰爭則有上限（避免部隊數量爆炸）
+  const warCap = y < 1950 || (C.surrender || 0) > 0.05 ? Infinity : peaceCap * 1.7;
+  if (manOk && land < (war ? warCap : peaceCap) && !upkeepHeavy) {
     want.push(['inf', war ? 3 : 2]);
     const tank = bestOf(['mbt', 'arm', 'ltk']);
     if (tank && ic >= 10 && tanks < land * (major ? 0.4 : 0.22) + 1) {
@@ -101,7 +102,7 @@ function aiEconomy(S, t) {
     if (navyPref && !canBuild(S, t, 'car') && cars < nav * 0.4 + 1) ship = 'car';
     want.push([ship, 1]);
   }
-  if (coastal && navyPref && ic >= 20 && war) want.push(['sub', 1]);
+  if (coastal && navyPref && ic >= 20 && war && nav < land * 0.5) want.push(['sub', 1]);
   if (war && manOk && (t === 'USA' || t === 'JAP' || t === 'ENG') && rand(S) < 0.5) want.push(['mar', 1]);
   if (hasFlag(C, 'nuke') && ic >= 50 && C.nukes < (S.tension > 60 ? 12 : 5) && rand(S) < 0.3) want.push(['nuke', 1]);
   const maxLines = Math.min(6, 2 + Math.floor(ic / 18));
@@ -116,7 +117,8 @@ function aiEconomy(S, t) {
   }
   // 保留玩家/事件指定的建築
   for (const l of C.prod) if (l.tgt >= 0 && !lines.includes(l) && lines.length < 8) lines.push(l);
-  if (lines.length) C.prod = lines;
+  // 沒有需要生產的項目時清空生產線（避免舊的無限生產線一直生產下去）
+  C.prod = lines;
 }
 
 // ============================================================ 研究 / 國策 / 法律

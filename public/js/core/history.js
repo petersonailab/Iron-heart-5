@@ -1087,7 +1087,9 @@ function historyGuide(S, A) {
     }
     if (A.isAI('PRC')) { const r = safeRegion(S, 'PRC'); if (r >= 0) A.units('PRC', { inf: 2 }, r); }
   }
-  if (y < 1941 || y > 1945) return;
+  if (y < 1941 || y > 1947) return;
+  // 1945 年起：德國燃料與兵源枯竭（AI 德國若仍在兩線作戰）
+  if (A.exists('GER') && A.isAI('GER') && S.day >= strToDay('1945-01-01') && A.atWar('GER', 'SOV') && A.atWar('GER', 'USA')) { A.tempMod('GER', 'att', -0.1, 30); A.tempMod('GER', 'def', -0.1, 30); }
   // 東線：蘇聯的總動員與後方新編部隊
   if (A.exists('SOV') && A.exists('GER') && A.atWar('GER', 'SOV') && A.isAI('SOV') && S.day >= strToDay('1941-09-01')) {
     // 只在德軍推進得比史實更深時才介入（史實上德軍最遠只到莫斯科、列寧格勒與史達林格勒城下）
