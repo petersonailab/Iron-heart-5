@@ -52,7 +52,12 @@ function aiEconomy(S, t) {
   for (let r = 0; r < R; r++) if (S.own[r] === t && S.ctrl[r] === t && S.core[r] === t && S.ind[r] < regionIndCap(r)) { factoriesFree = true; break; }
   const aggr = C.ideo === 'fas' || C.ideo === 'com' ? 2 : 1;
   let nRegions = 0; for (let r = 0; r < R; r++) if (S.own[r] === t) nRegions++;
-  const peaceCap = Math.min(4 + nRegions * 2.5, 4 + ic * 0.3 * aggr + (S.tension > 50 ? ic * 0.25 * aggr : 0));
+  const peaceCap = Math.max(3 + nRegions * 0.8, 3 + ic * 0.22 * aggr) + (S.tension > 50 ? ic * 0.15 * aggr : 0);
+  // 和平時期裁軍：超出上限太多時解散最弱的部隊（開局一年內不裁軍）
+  if (!war && land > peaceCap * 1.4 && C.ai && S.day > (S.startDay || 0) + 365) {
+    const mine = S.units.filter(u => u.c === t && !u.dead && isLandUnit(u) && !u.path.length).sort((a, b) => a.hp - b.hp);
+    for (const u of mine.slice(0, Math.min(3, Math.ceil(land - peaceCap * 1.4)))) { u.dead = true; C.man += UNITS[u.t].man * 0.5; }
+  }
   const upkeepHeavy = (C.upkeep || 0) > ic * 0.75;
   const threatened = (C.surrender || 0) > 0.1;
   if (!war && factoriesFree && ic > 2 && (S.tension < 45 || land > peaceCap * 0.7)) want.push(['factory', 1]);
@@ -374,7 +379,7 @@ function aiInvade(S, t, idle, idx, front) {
     else if (enemies.has(u.c)) enemyNav += navPower(S, u, false);
   }
   if (myNav < 25 || myNav < enemyNav * 0.6) return;
-  const maxHops = WORLD.countries[t].navy ? 7 : 4;
+  const maxHops = WORLD.countries[t].navy ? 7 : 2;
   const zp = new Map();
   for (const u of S.units) { if (u.dead || !isNaval(u)) continue; let m = zp.get(u.n); if (!m) zp.set(u.n, m = new Map()); m.set(u.c, (m.get(u.c) || 0) + navPower(S, u, false)); }
   // 候選目標：敵方沿海地區

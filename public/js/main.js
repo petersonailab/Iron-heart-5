@@ -28,7 +28,7 @@ let me = null;              // 玩家國家
 const sel = new Set();      // 選取的部隊
 let selRegion = -1;
 let panel = null;           // 目前開啟的分頁
-let lastNews = 0, lastCtrlSig = '', lastHud = 0, lastPanel = 0;
+let lastNews = 0, lastCtrlSig = '', lastHud = 0, lastPanel = 0, lastSelRender = 0, selSig = '', deadShown = false;
 let modalOpen = false, overShown = false;
 const ui = { dipFilter: 'near', dipSearch: '', newsFilter: 'all', prodCount: 1 };
 
@@ -322,7 +322,7 @@ function pickFromMap(n) {
 
 // ================================================================ 遊戲開始
 function beginGame(g, tag) {
-  G = g; S = g.S; me = tag;
+  G = g; S = g.S; me = tag; hudBuilt = null; deadShown = false; selSig = '';
   g.pauseOnEvents = LS.get('cof_evpause', true);
   sel.clear(); selRegion = -1; lastNews = S.newsSeq; lastCtrlSig = ''; overShown = !!S.over;
   map.setState(S, me); map.year = yearOf(S.day);
@@ -354,8 +354,9 @@ function onUpdate(force) {
   for (const id of [...sel]) { const u = S.units.find(x => x.id === id); if (!u || u.c !== me) sel.delete(id); }
   map.sel = sel;
   if (force || now - lastHud > 200) { lastHud = now; renderHUD(); }
-  if (panel && (force || now - lastPanel > 900)) { lastPanel = now; renderPanel(); }
-  if (sel.size || selRegion >= 0) { if (force || now - lastHud < 5) renderSel(); else if (Math.random() < 0.3) renderSel(); }
+  if (panel && !panelPointer && (force || now - lastPanel > (panelHover ? 2500 : 900))) { lastPanel = now; renderPanel(); }
+  if (sel.size || selRegion >= 0) { if (force || now - lastSelRender > 700) { lastSelRender = now; renderSel(); } }
+  checkDead();
   newsToasts();
   checkPrompts();
   checkOver();
@@ -363,26 +364,44 @@ function onUpdate(force) {
 }
 
 // ================================================================ HUD
+let hudBuilt = null;
+function buildHUD() {
+  const hud = $('#hud');
+  hud.innerHTML = `<div class="flag" data-hudtab="politics"><span class="sw" id="h-sw"></span><b id="h-name"></b></div>
+    <div class="stat" id="h-ic" title="軍工產能（扣除部隊維持費後可用 / 總產能）"><i>🏭</i><span id="h-icn"></span><small id="h-icg"></small></div>
+    <div class="stat" id="h-manb" title="可用人力"><i>👥</i><span id="h-man"></span></div>
+    <div class="stat" id="h-ppb" title="政治點數：用於外交與法律"><i>⭐</i><span id="h-pp"></span></div>
+    <div class="stat" id="h-nuke" title="核子武器"><i>☢️</i><span id="h-nk"></span></div>
+    <div class="stat" id="h-sur" title="投降進度：本國勝利點被佔領的比例，超過門檻將投降"><i>🏳️</i><span id="h-surv"></span></div>
+    <div class="spacer"></div><div class="date" id="h-date"></div>
+    <div class="speeds"><button class="pause" data-speed="0" title="暫停（空白鍵）">⏸</button>${[1, 2, 3, 4, 5].map(i => `<button data-speed="${i}" title="速度 ${i}：每秒 ${SPEEDS[i]} 天">${'▶'.repeat(Math.min(3, Math.ceil(i / 2)))}</button>`).join('')}</div>
+    <div class="spacer"></div>
+    <div class="tension" title="世界緊張度：越高，民主國家越能動員備戰"><small id="h-ten"></small><div class="bar"><div id="h-tenb"></div></div></div>
+    <button class="btn small" data-act="menu" title="選單">☰</button>`;
+  hudBuilt = true;
+}
 function renderHUD() {
   if (!G || !S) return;
+  if (!hudBuilt) buildHUD();
   const C = me && S.C[me];
-  const hud = $('#hud');
-  const t = Math.round(S.tension);
-  const speedBtns = [`<button class="pause ${G.paused ? 'on' : ''}" data-speed="0" title="暫停（空白鍵）">⏸</button>`].concat([1, 2, 3, 4, 5].map(i => `<button class="${!G.paused && G.speed === i ? 'on' : ''}" data-speed="${i}" title="速度 ${i}：每秒 ${SPEEDS[i]} 天">${'▶'.repeat(Math.min(3, Math.ceil(i / 2)))}${i > 1 ? '' : ''}</button>`)).join('');
-  let stats = '';
-  if (C && C.exists !== false) {
-    const net = Math.round(C.icNet ?? C.ic ?? 0), gross = Math.round(C.ic || 0);
+  const set = (id, v) => { const el = document.getElementById(id); if (el && el.textContent !== String(v)) el.textContent = v; };
+  const vis = (id, on) => { const el = document.getElementById(id); if (el) el.style.display = on ? '' : 'none'; };
+  $('#h-sw').style.background = me ? color(me) : '#444';
+  set('h-name', me ? cname(S, me) : '觀戰中');
+  const ok = !!(C && C.exists !== false);
+  vis('h-ic', ok); vis('h-manb', ok); vis('h-ppb', ok);
+  if (ok) {
+    set('h-icn', Math.round(C.icNet ?? C.ic ?? 0)); set('h-icg', '/' + Math.round(C.ic || 0));
+    set('h-man', fmtMan(C.man || 0)); set('h-pp', Math.floor(C.pp || 0));
+    vis('h-nuke', !!C.nukes); set('h-nk', C.nukes || 0);
     const war = atWarAny(S, me);
-    stats = `<div class="stat" title="軍工產能（扣除部隊維持費後可用 / 總產能）"><i>🏭</i><span>${net}</span><small>/${gross}</small></div>
-      <div class="stat" title="可用人力"><i>👥</i><span>${fmtMan(C.man || 0)}</span></div>
-      <div class="stat" title="政治點數：用於國策以外的外交與法律行動"><i>⭐</i><span>${Math.floor(C.pp || 0)}</span></div>
-      ${C.nukes ? `<div class="stat" title="核子武器"><i>☢️</i><span>${C.nukes}</span></div>` : ''}
-      ${war ? `<div class="stat ${C.surrender > 0.3 ? 'warn' : ''}" title="投降進度：本國勝利點被佔領的比例，超過門檻將投降"><i>🏳️</i><span>${Math.round((C.surrender || 0) * 100)}%</span></div>` : ''}`;
-  }
-  hud.innerHTML = `<div class="flag" data-hudtab="politics">${me ? sw(me) : ''}<b>${me ? nameOf(me) : '觀戰中'}</b></div>${stats}
-    <div class="spacer"></div><div class="date">${fmtDate(S.day)}</div><div class="speeds">${speedBtns}</div><div class="spacer"></div>
-    <div class="tension" title="世界緊張度：越高，民主國家越能動員備戰"><small>世界緊張度 ${t}%</small><div class="bar"><div style="width:${Math.min(100, t)}%"></div></div></div>
-    <button class="btn small" data-act="menu">☰</button>`;
+    vis('h-sur', war); set('h-surv', Math.round((C.surrender || 0) * 100) + '%');
+    $('#h-sur').classList.toggle('warn', (C.surrender || 0) > 0.3);
+  } else { vis('h-nuke', false); vis('h-sur', false); }
+  set('h-date', fmtDate(S.day));
+  const t = Math.round(S.tension);
+  set('h-ten', `世界緊張度 ${t}%`); $('#h-tenb').style.width = Math.min(100, t) + '%';
+  for (const b of $$('#hud [data-speed]')) { const v = Number(b.dataset.speed); b.classList.toggle('on', v === 0 ? G.paused : (!G.paused && G.speed === v)); }
 }
 $('#hud').addEventListener('click', (e) => {
   const sp = e.target.closest('[data-speed]');
@@ -678,6 +697,11 @@ $('#panel').addEventListener('click', (e) => {
     syncSel();
   } else if (d.nfilter) { ui.newsFilter = d.nfilter; renderPanel(); }
 });
+let panelPointer = false, panelHover = false;
+$('#panel').addEventListener('pointerdown', () => { panelPointer = true; });
+window.addEventListener('pointerup', () => { if (panelPointer) setTimeout(() => { panelPointer = false; }, 50); });
+$('#panel').addEventListener('pointerenter', () => { panelHover = true; });
+$('#panel').addEventListener('pointerleave', () => { panelHover = false; });
 $('#panel').addEventListener('change', (e) => { const f = e.target.dataset.flag; if (f) cmd({ type: 'setflag', key: f, on: e.target.checked }); });
 $('#panel').addEventListener('input', (e) => { if (e.target.id === 'dip-search') { ui.dipSearch = e.target.value.trim(); renderPanel(); } });
 
@@ -708,6 +732,13 @@ function renderSel() {
     for (const u of units) types[u.t] = (types[u.t] || 0) + 1;
     const chips = units.slice(0, 40).map(u => `<span class="uchip" title="${esc(UNITS[u.t].name)}｜兵力 ${Math.round(u.hp)}%｜組織度 ${Math.round(u.org)}${u.sup ? '' : '｜補給中斷！'}${u.auto ? '｜AI 指揮' : ''}">${UNITS[u.t].short}<span class="mini"><div style="width:${u.hp}%;background:${u.org / (UNITS[u.t].org || 60) > 0.5 ? '#5d5' : u.org > 10 ? '#dc4' : '#e44'}"></div></span>${u.sup ? '' : '⚠'}${u.auto ? '🤖' : ''}</span>`).join('');
     const where = [...new Set(units.map(u => u.n))];
+    const sig = 'u' + units.map(u => u.id).join(',');
+    if (sig === selSig && box.querySelector('.units') && !box.classList.contains('hidden')) {
+      box.querySelector('.units').innerHTML = chips;
+      box.querySelector('h4 small').textContent = Object.entries(types).map(([t, k]) => `${UNITS[t].name}×${k}`).join('、');
+      return;
+    }
+    selSig = sig;
     box.innerHTML = `<h4>已選取 ${units.length} 個單位 <small style="color:var(--dim);font-weight:400">${Object.entries(types).map(([t, k]) => `${UNITS[t].name}×${k}`).join('、')}</small><span class="x" data-sx="1">✕</span></h4>
       <div class="units">${chips}</div>
       <div class="actions"><button class="btn small gold" data-sord="1">📍 移動/進攻…</button><button class="btn small" data-sstop="1">停止</button><button class="btn small" data-sauto="1">交給 AI</button><button class="btn small" data-sloc="${where[0]}">定位</button><button class="btn small red" data-sdis="1">解散</button></div>
@@ -717,6 +748,9 @@ function renderSel() {
   }
   if (selRegion >= 0) {
     const n = selRegion, nd = nodes[n];
+    const rsig = 'r' + n + ':' + S.ctrl[n] + ':' + S.own[n] + ':' + S.ind[n] + ':' + S.fort[n] + ':' + S.units.filter(u => u.n === n).length + ':' + (me && S.C[me] ? S.C[me].nukes : 0);
+    if (rsig === selSig && !box.classList.contains('hidden')) return;
+    selSig = rsig;
     if (n >= R) {
       const here = S.units.filter(u => u.n === n);
       box.innerHTML = `<h4>🌊 ${esc(nd.name)}<span class="x" data-sx="1">✕</span></h4><div class="hint">海域。艦隊在此作戰並掌握制海權；運兵船經過敵方優勢海域會遭受損失。</div>${unitsHere(here)}`;
@@ -738,6 +772,7 @@ function renderSel() {
       ${ctl && ctl !== me && alive(S, ctl) ? `<button class="btn small" data-rdip="${ctl}">外交：${nameOf(ctl)}</button>` : ''}</div>`;
     box.classList.remove('hidden'); return;
   }
+  selSig = '';
   box.classList.add('hidden');
 }
 function unitsHere(list) {
@@ -838,6 +873,13 @@ function checkOver() {
     <table><tr><th>#</th><th>國家</th><th>分數（勝利點＋工業）</th></tr>${rows.map(([t, v], i) => `<tr><td>${i + 1}</td><td>${sw(t)} ${nameOf(t)}</td><td>${v}</td></tr>`).join('')}</table></div>
     <div class="opts"><button class="btn gold" data-close>繼續觀看地圖</button><button class="btn" data-act="back">回主選單</button></div>`);
 }
+function checkDead() {
+  if (!me || deadShown || modalOpen || !S.C[me] || S.C[me].exists !== false) return;
+  deadShown = true;
+  modal(`<header><h3>${nameOf(me)}已經滅亡</h3><small>${fmtDate(S.day)}</small></header><div class="db">你的國家已被敵人吞併。若盟國解放你的國土，你的國家可能會復國。你可以選擇另一個國家繼續遊戲，或留下來觀戰。</div>
+    <div class="opts"><button class="btn gold" id="dead-pick">選擇其他國家</button><button class="btn" data-close>繼續觀戰</button><button class="btn" data-act="back">回主選單</button></div>`);
+  $('#dead-pick').onclick = () => chooseNationDialog();
+}
 function tabAlerts() {
   if (!me || !S.C[me]) return;
   const C = S.C[me];
@@ -877,7 +919,7 @@ function openGameMenu() {
   </div><div class="opts">
     <button class="btn" id="m-resume" data-close>繼續遊戲</button>
     ${!G || !G.isClient ? `<button class="btn" id="m-save">儲存遊戲</button><button class="btn" id="m-export">下載存檔檔案</button>` : ''}
-    ${G && G.isClient && !me ? `<button class="btn" id="m-pick">選擇國家</button>` : ''}
+    ${G && ((G.isClient && !me) || (me && S.C[me] && S.C[me].exists === false)) ? `<button class="btn" id="m-pick">選擇國家</button>` : ''}
     <button class="btn" id="m-help">遊戲說明</button>
     <button class="btn" id="m-tut">重新觀看教學</button>
     <button class="btn red" id="m-quit">回主選單</button></div>`);
@@ -923,7 +965,11 @@ function loadFrom(data, tag) {
 function chooseNationDialog() {
   const tags = liveTags(S).filter(t => S.C[t].ai).sort((a, b) => (S.C[b].ic || 0) - (S.C[a].ic || 0)).slice(0, 40);
   modal(`<header><h3>選擇國家</h3><small>選擇一個由 AI 控制的國家來指揮</small></header><div class="db"><div class="clist">${tags.map(t => `<div class="crow" data-choose="${t}">${sw(t)}<div class="nm"><b>${nameOf(t)}</b> <small>工業 ${Math.round(S.C[t].ic || 0)}</small></div></div>`).join('')}</div></div><div class="opts"><button class="btn" data-close>稍後再選</button></div>`);
-  $$('[data-choose]').forEach(b => b.onclick = async () => { const r = await G.pick(b.dataset.choose); if (r.ok) closeModal(); else toast(r.msg || '無法選擇', 'warn'); });
+  $$('[data-choose]').forEach(b => b.onclick = async () => {
+    const t = b.dataset.choose;
+    if (G.isClient) { const r = await G.pick(t); if (r.ok) closeModal(); else toast(r.msg || '無法選擇', 'warn'); return; }
+    G.switchTo(t); me = t; map.me = t; deadShown = false; hudBuilt = null; closeModal(); map.centerOnNode(S.C[t].cap, 1.3); onUpdate(true); toast(`你現在指揮：${cname(S, t)}`);
+  });
 }
 
 // 聊天

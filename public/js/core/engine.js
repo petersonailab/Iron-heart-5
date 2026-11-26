@@ -171,7 +171,7 @@ export function killCountry(S, tag, by) {
   if (C.fac) { C.lastFac = C.fac; leaveFaction(S, tag, true); }
   for (const t in S.C) { const o = S.C[t]; o.guar = o.guar.filter(x => x !== tag); if (o.subj === tag) o.subj = null; }
   for (const k of Object.keys(S.lend)) if (k.startsWith(tag + '>') || k.endsWith('>' + tag)) delete S.lend[k];
-  C.exists = false; C.prod = []; C.pp = 0;
+  C.exists = false; C.prod = []; C.pp = 0; C.deadDay = S.day;
   delete S.pending[tag];
   addNews(S, `${C.name}已不復存在。`, 'major', [tag]);
 }
@@ -307,7 +307,7 @@ function captureRegion(S, r, by) {
     const K = S.C[core];
     if (K && K.exists) {
       if (core !== prev && !atWar(S, core, by) && (friendly(S, core, by) || coBel(S, core, by))) newCtrl = core;
-    } else if (K && canLiberate(S, by, core, prev) && (S.C[by].fac === K.lastFac || r === WORLD.countries[core].capital || nodes[r].vp >= 10)) {
+    } else if (K && S.day - (K.deadDay || -9999) > 365 && canLiberate(S, by, core, prev) && liberationReady(S, by, core, r)) {
       const byC = S.C[by];
       const sameFac = K.lastFac && byC.fac === K.lastFac && S.fac[K.lastFac];
       const ideo = sameFac ? WORLD.countries[core].ideo : (byC.ideo === 'com' ? 'com' : WORLD.countries[core].ideo);
@@ -319,6 +319,11 @@ function captureRegion(S, r, by) {
       for (const e of enemySet(S, by)) if (!friendly(S, core, e)) setWar(S, core, e);
       S.C[core].cap = r;
       spawnUnit(S, core, 'inf', r);
+      if (!sameFac) {
+        // 一次交還解放者已控制的全部核心地區
+        for (let q = 0; q < R; q++) if (q !== r && S.core[q] === core && S.own[q] !== by && !(S.own[q] && friendly(S, by, S.own[q])) && (S.ctrl[q] === by || (S.ctrl[q] && friendly(S, by, S.ctrl[q])))) { S.own[q] = core; S.ctrl[q] = core; }
+        spawnUnit(S, core, 'inf', r); spawnUnit(S, core, 'inf', r);
+      }
       addNews(S, `${cname(S, by)}解放了${rname(S, r)}，${cname(S, core)}政府重新建立！`, 'major', [by, core]);
       newCtrl = core;
     }
@@ -328,6 +333,18 @@ function captureRegion(S, r, by) {
   if (core === newCtrl && S.own[r] !== newCtrl && (!alive(S, S.own[r]) || atWar(S, S.own[r], newCtrl))) S.own[r] = newCtrl;
   if (newCtrl !== by && S.own[r] !== newCtrl && atWar(S, S.own[r], by)) S.own[r] = newCtrl;
   relocateHostile(S, r);
+}
+function liberationReady(S, by, core, r) {
+  const K = S.C[core];
+  if (K.lastFac && S.C[by].fac === K.lastFac) return true;
+  let tot = 0, held = 0;
+  for (let q = 0; q < R; q++) {
+    if (S.core[q] !== core) continue;
+    if (S.own[q] === by || (S.own[q] && friendly(S, by, S.own[q]))) continue; // 解放者自己吞併的領土不算
+    tot++;
+    if (q === r || S.ctrl[q] === by || (S.ctrl[q] && friendly(S, by, S.ctrl[q]))) held++;
+  }
+  return tot > 0 && held / tot >= 0.5;
 }
 function canLiberate(S, by, core, prev) {
   const K = S.C[core]; if (!K || !K.lastFac) return false;

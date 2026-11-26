@@ -23,7 +23,7 @@ export function mkApi(S) {
     atWar: (a, b) => atWar(S, a, b),
     war: (a, b, opts = {}) => alive(S, a) && alive(S, b) && !atWar(S, a, b) && declareWar(S, a, b, opts),
     setWar: (a, b) => alive(S, a) && alive(S, b) && setWar(S, a, b),
-    peace: (a, b, kind = 'white') => atWar(S, a, b) && makePeace(S, a, b, kind),
+    peace: (a, b, kind = 'white', silent = false) => atWar(S, a, b) && makePeace(S, a, b, kind, { silent }),
     give: (ids, to, opts = {}) => { for (const id of ids) { const r = rid(id); if (opts.onlyFrom && S.own[r] !== opts.onlyFrom) continue; transferRegion(S, r, to, { core: !!opts.core }); } },
     create: (tag, ids, opts = {}) => {
       const regs = ids.map(rid).filter(r => !opts.onlyFrom || opts.onlyFrom.includes(S.own[r]));
@@ -256,10 +256,12 @@ ev({ id: 'spanish_civil_war', date: '1936-07-17', kind: 'war', title: '西班牙
   fire: A => {
     A.create('SPA', ['spa_seville', 'spa_granada', 'spa_galicia', 'spa_valladolid', 'spa_zaragoza', 'spa_morocco', 'spa_riodeoro', 'spa_badajoz'], { ideo: 'fas', from: 'SPR', units: 6 });
     A.S.C.SPA.cap = A.rid('spa_valladolid');
-    A.units('SPA', { inf: 3, arm: 2, ftr: 1 }, 'spa_seville');
-    A.S.C.SPA.mods.att += 0.15; A.S.C.SPA.capMod = 0.5;
+    A.units('SPA', { inf: 5, arm: 3, ftr: 1 }, 'spa_seville');
+    A.units('SPA', { inf: 3 }, 'spa_valladolid');
+    A.S.C.SPA.mods.att += 0.2; A.S.C.SPA.mods.def += 0.1; A.S.C.SPA.capMod = 0.5;
+    A.tempMod('SPR', 'att', -0.2, 900); A.tempMod('SPR', 'def', -0.1, 900);
     A.war('SPA', 'SPR', { limited: true }); A.civil('SPA', 'SPR');
-    A.lend('GER', 'SPA', 0.06); A.lend('ITA', 'SPA', 0.08); A.lend('SOV', 'SPR', 0.06);
+    A.lend('GER', 'SPA', 0.1); A.lend('ITA', 'SPA', 0.12); A.lend('SOV', 'SPR', 0.05);
   } });
 ev({ id: 'axis_1936', date: '1936-10-25', kind: 'news', title: '柏林-羅馬軸心', cond: A => A.exists('GER') && A.exists('ITA'), text: '德義兩國簽訂合作協議，墨索里尼稱之為「柏林-羅馬軸心」。' });
 ev({ id: 'anticomintern', date: '1936-11-25', kind: 'news', title: '反共產國際協定', cond: A => A.exists('GER') && A.exists('JAP'), text: '德國與日本簽訂《反共產國際協定》，次年義大利加入。' });
@@ -434,7 +436,7 @@ ev({ id: 'barbarossa', date: '1941-06-22', kind: 'war', title: '巴巴羅薩行�
 ev({ id: 'continuation_war', date: '1941-06-25', until: '1941-12-31', kind: 'war', title: '繼續戰爭', who: 'FIN',
   cond: A => A.exists('FIN') && A.atWar('GER', 'SOV') && !A.atWar('FIN', 'SOV'),
   text: '芬蘭決定與德國並肩作戰，收復冬季戰爭失去的領土。',
-  opts: [{ t: '參戰（歷史）', fx: A => A.war('FIN', 'SOV', { solo: true }) }, { t: '保持中立', fx: () => {} }] });
+  opts: [{ t: '參戰（歷史）', fx: A => { A.war('FIN', 'SOV', { solo: true }); A.limit('FIN', 'SOV', ['fin_karelia', 'fin_sortavala', 'sov_karelia'], ['fin_karelia', 'fin_sortavala', 'fin_kuopio', 'fin_lapland']); } }, { t: '保持中立', fx: () => {} }] });
 ev({ id: 'iran_invasion', date: '1941-08-25', until: '1942-12-31', kind: 'war', title: '英蘇入侵伊朗', who: 'ENG',
   cond: A => A.exists('ENG') && A.exists('SOV') && A.exists('PER') && A.atWar('GER', 'SOV') && !A.atWar('ENG', 'PER'),
   text: '為確保油田與對蘇援助走廊，英國與蘇聯聯合進軍伊朗。',
@@ -568,6 +570,7 @@ ev({ id: 'hiroshima', date: '1945-08-06', until: '1946-12-31', kind: 'war', titl
       A.news('1945年8月6日，原子彈「小男孩」摧毀廣島，當年約十四萬人因此喪生。三天後，長崎遭第二枚原子彈轟炸，約七萬四千人喪生。核武的恐怖從此籠罩人類。', 'nuke');
       if (S.C.USA.nukes > 0 && A.ctrls('JAP', 'jap_fukuoka')) nukeStrike(S, 'USA', A.rid('jap_fukuoka'));
       A.flag('hiroshima');
+      if (A.exists('JAP')) A.S.C.JAP.capMod = 1.6;
     } },
     { t: '不使用，繼續常規作戰', fx: A => A.flag('no_bomb') },
   ] });
@@ -602,7 +605,7 @@ ev({ id: 'postwar_restore', date: '1945-06-01', until: '1950-12-31', kind: 'stru
     const S = A.S;
     // 伊朗恢復
     if (!A.exists('PER')) { const regs = []; for (let r = 0; r < R; r++) if (S.core[r] === 'PER') regs.push(r); A.create('PER', regs, { ideo: 'neu' }); }
-    else if (S.C.PER.subj === 'ENG') S.C.PER.subj = null;
+    else { S.C.PER.subj = null; A.leave('PER'); for (let r = 0; r < R; r++) if (S.core[r] === 'PER' && S.own[r] !== 'PER') transferRegion(S, r, 'PER'); }
     // 東歐共產化
     for (const t of ['POL', 'HUN', 'ROM', 'BUL', 'ALB', 'YUG', 'CZE']) {
       if (!A.exists(t)) continue;
@@ -632,8 +635,10 @@ ev({ id: 'chinese_civil_war', date: '1946-06-26', until: '1949-12-31', kind: 'wa
     A.units('PRC', { inf: 8 }, 'prc_yanan');
     const mr = A.regionsOf('PRC').filter(r => nodes[r].id.startsWith('man_'));
     if (mr.length) A.units('PRC', { inf: 6, arm: 1 }, mr[0]);
-    A.S.C.PRC.mods.att += 0.15;
-    A.tempMod('CHI', 'att', -0.2, 1200); A.tempMod('CHI', 'def', -0.2, 1200);
+    A.S.C.PRC.mods.att += 0.25; A.S.C.PRC.mods.def += 0.1;
+    A.units('PRC', { inf: 10 }, 'prc_yanan');
+    A.tempMod('CHI', 'att', -0.35, 1300); A.tempMod('CHI', 'def', -0.3, 1300);
+    for (const u of A.S.units) if (u.c === 'CHI' && !u.dead && u.n < R && nodes[u.n].mod === 'CHN' && Math.random() < 0.3) u.c = 'PRC';
     A.war('PRC', 'CHI', { limited: true }); A.civil('PRC', 'CHI');
     A.lend('SOV', 'PRC', 0.04); A.lend('USA', 'CHI', 0.03);
   } }, { t: '維持國共和平', fx: () => {} }] });
@@ -655,8 +660,9 @@ ev({ id: 'israel', date: '1948-05-14', kind: 'war', title: '以色列建國與�
   text: '英國結束巴勒斯坦委任統治，本-古里安宣布以色列建國。次日埃及、約旦、敘利亞、伊拉克等阿拉伯國家出兵，七十多萬巴勒斯坦人被迫離開家園（「大浩劫」）。',
   fire: A => {
     const S = A.S;
-    A.create('ISR', ['pal_telaviv', 'pal_haifa', 'pal_negev'], { ideo: 'dem', units: 7 });
-    A.units('ISR', { arm: 1, ftr: 1 }, 'pal_telaviv'); A.S.C.ISR.mods.def += 0.3; A.S.C.ISR.mods.att += 0.15;
+    A.create('ISR', ['pal_telaviv', 'pal_haifa', 'pal_negev'], { ideo: 'dem', units: 10 });
+    A.units('ISR', { arm: 2, ftr: 2 }, 'pal_telaviv'); A.S.C.ISR.mods.def += 0.4; A.S.C.ISR.mods.att += 0.25; A.S.C.ISR.capMod = 0.35;
+    for (const t of ['EGY', 'JOR', 'SYR', 'IRQ']) A.tempMod(t, 'att', -0.3, 400);
     if (A.exists('JOR')) A.give(['pal_westbank'], 'JOR', { onlyFrom: 'ENG' });
     for (const t of ['EGY', 'JOR', 'SYR', 'IRQ']) if (A.exists(t)) { A.war(t, 'ISR', { limited: true }); A.limit(t, 'ISR', ['pal_telaviv', 'pal_haifa', 'pal_negev'], ['pal_westbank']); }
     void S;
@@ -738,7 +744,7 @@ ev({ id: 'china_korea', date: '1950-10-19', until: '1953-07-01', kind: 'war', ti
   } }, { t: '不介入', fx: () => {} }] });
 ev({ id: 'korea_armistice', date: '1953-07-27', until: '1960-01-01', kind: 'war', title: '韓戰停戰協定', cond: A => A.atWar('PRK', 'KOR') || A.atWar('PRC', 'USA'),
   text: '交戰各方在板門店簽署停戰協定，以軍事分界線為界設立非軍事區。戰爭造成數百萬人傷亡。',
-  fire: A => { const S = A.S; const side1 = ['PRK', 'PRC']; for (const a of side1) for (const b of [...enemySet(S, a)]) if (['KOR', 'USA', 'ENG', 'CAN', 'AST', 'TUR', 'FRA', 'NZL', 'PHI', 'GRE', 'SIA', 'BEL', 'HOL', 'COL', 'ETH', 'SAF', 'LUX'].includes(b)) A.peace(a, b, 'status'); } });
+  fire: A => { const S = A.S; const side1 = ['PRK', 'PRC']; for (const a of side1) for (const b of [...enemySet(S, a)]) if (['KOR', 'USA', 'ENG', 'CAN', 'AST', 'TUR', 'FRA', 'NZL', 'PHI', 'GRE', 'SIA', 'BEL', 'HOL', 'COL', 'ETH', 'SAF', 'LUX'].includes(b)) A.peace(a, b, 'status', true); } });
 ev({ id: 'tibet', date: '1950-10-07', until: '1952-12-31', kind: 'war', title: '解放軍進軍西藏', who: 'PRC', cond: A => A.exists('PRC') && A.exists('TIB') && !A.atWar('PRC', 'TIB'),
   text: '解放軍在昌都擊敗藏軍。', opts: [{ t: '進軍（歷史）', fx: A => { A.puppet('PRC', 'TIB'); A.war('PRC', 'TIB', { limited: true }); } }, { t: '暫緩', fx: () => {} }] });
 ev({ id: 'tibet_annex', date: '1951-05-23', until: '1959-12-31', kind: 'struct', title: '十七條協議', cond: A => A.exists('TIB') && A.exists('PRC') && A.S.C.TIB.subj === 'PRC', text: '西藏地方政府與中央人民政府簽訂協議，西藏併入中華人民共和國。', fire: A => A.annex('TIB', 'PRC') });
@@ -849,7 +855,7 @@ ev({ id: 'bangladesh_war', date: '1971-12-03', until: '1972-06-01', kind: 'war',
 ev({ id: 'bangladesh', date: '1971-12-16', until: '1972-12-31', kind: 'war', title: '孟加拉獨立', cond: A => A.atWar('PAK', 'IND') && (A.ctrls('IND', 'raj_dacca') || A.S.day > strToDay('1972-01-10')),
   text: '巴基斯坦東部軍隊在達卡投降，孟加拉人民共和國誕生。', fire: A => { A.peace('PAK', 'IND', 'white'); A.create('BAN', ['raj_dacca'], { ideo: 'neu', units: 2 }); } });
 ev({ id: 'paris_accords', date: '1973-01-27', until: '1975-12-31', kind: 'war', title: '巴黎和平協約', cond: A => A.atWar('USA', 'VIN'),
-  text: '美國與北越簽署和平協約，美軍撤出越南。', fire: A => { for (const t of ['USA', 'AST', 'NZL', 'KOR', 'SIA']) A.peace(t, 'VIN', 'white'); } });
+  text: '美國與北越簽署和平協約，美軍撤出越南。', fire: A => { for (const t of ['USA', 'AST', 'NZL', 'KOR', 'SIA']) A.peace(t, 'VIN', 'white', true); } });
 ev({ id: 'yom_kippur', date: '1973-10-06', until: '1974-06-01', kind: 'war', title: '贖罪日戰爭', who: 'EGY', cond: A => A.exists('EGY') && A.exists('ISR') && !A.atWar('EGY', 'ISR'),
   text: '在猶太教贖罪日，埃及與敘利亞對以色列發動突襲。', opts: [{ t: '發動突襲（歷史）', fx: A => { A.war('EGY', 'ISR', { limited: true }); A.limit('EGY', 'ISR', ['egy_sinai'], ['egy_sinai']); if (A.exists('SYR')) { A.setWar('SYR', 'ISR'); A.limit('SYR', 'ISR', [], []); } } }, { t: '取消', fx: () => {} }] });
 ev({ id: 'yom_kippur_end', date: '1973-10-25', until: '1974-12-31', kind: 'war', title: '贖罪日戰爭停火', cond: A => A.atWar('EGY', 'ISR') || A.atWar('SYR', 'ISR'),
@@ -964,16 +970,17 @@ export function runEvents(S) {
   // 遊戲結束
   if (S.flags.coldWarOver && !S.over) { S.over = { reason: '冷戰結束：蘇聯解體', day: S.day }; addNews(S, '遊戲結束：冷戰落幕。', 'major'); }
 }
+const newsText = (e) => e.text.replace(/[^。！」]*？$/, '').trim();
 function fireEvent(S, A, e) {
   if (e.opts && e.who) {
     if (!alive(S, e.who)) return;
     const C = S.C[e.who];
     if (!C.ai) {
       pushPrompt(S, e.who, { ev: e.id, title: e.title, text: e.text, opts: e.opts.map(o => ({ t: o.t, act: 'hist' })), def: 0 });
-      addNews(S, `【${e.title}】${e.text}`, 'hist', [e.who]);
+      addNews(S, `【${e.title}】${newsText(e)}`, 'hist', [e.who]);
       return;
     }
-    addNews(S, `【${e.title}】${e.text}`, 'hist', [e.who]);
+    addNews(S, `【${e.title}】${newsText(e)}`, 'hist', [e.who]);
     try { e.opts[e.ai ?? 0].fx(A); } catch (err) { console.error('事件錯誤', e.id, err); }
     return;
   }

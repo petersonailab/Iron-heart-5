@@ -60,6 +60,12 @@ export class LocalGame extends Emitter {
     if (this.S.over && !this.overShown) { this.overShown = true; return true; }
     return false;
   }
+  switchTo(tag) {
+    const S = this.S;
+    if (this.me && S.C[this.me]) { S.C[this.me].ai = true; S.C[this.me].pid = null; }
+    this.me = tag; S.C[tag].ai = false; S.C[tag].pid = 'local';
+    if (this.net) { this.sendPlayers(); this.broadcastNotice(`主機改為指揮${S.C[tag].name}`); }
+  }
   command(cmd) {
     const res = applyCommand(this.S, this.me, cmd);
     this.emit('update');

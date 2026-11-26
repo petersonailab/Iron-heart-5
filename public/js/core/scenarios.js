@@ -159,6 +159,13 @@ function setup1936(S, A) {
   for (const t of ['GER', 'SOV', 'JAP', 'ITA']) { S.C[t].laws.eco = 1; }
   S.C.GER.laws.con = 1;
   S.C.FIN.mods.def += 0.25;
+  // 歷史修正：德軍訓練與準則優勢、蘇聯大清洗的後遺症（至 1942 年中）、日軍對華的裝備優勢
+  S.C.GER.mods.att += 0.1; S.C.GER.mods.def += 0.08;
+  S.C.SOV.mods.att -= 0.15; S.C.SOV.mods.def -= 0.08;
+  (S.temp || (S.temp = [])).push({ tag: 'SOV', key: 'att', val: -0.15, until: strToDay('1942-07-01') }, { tag: 'SOV', key: 'def', val: -0.08, until: strToDay('1942-07-01') });
+  S.C.CHI.mods.def += 0.15;
+  // 日本「本土決戰」：投降門檻較低（需失去更多勝利點才會投降），直到原子彈事件
+  S.C.JAP.capMod = 0.55;
   // 義衣戰爭
   setWar(S, 'ITA', 'ETH');
   S.ctrl[ridx('eth_harar')] = 'ITA';
