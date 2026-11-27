@@ -65,7 +65,7 @@ export function applyCommand(S, tag, cmd) {
         const u = S.units.find(x => x.id === id);
         if (!u || u.c !== tag || u.dead) continue;
         u.auto = false;
-        if (orderMove(S, u, cmd.to)) n++;
+        if (orderMove(S, u, cmd.to)) { n++; u.manual = S.day + 60; }
       }
       return n ? okr(`已下令 ${n} 個單位移動`) : fail('無法抵達該處');
     }

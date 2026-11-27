@@ -1,6 +1,7 @@
 // 科技樹與國策樹（全螢幕檢視）
 import { TECHS, TECH_MAP, TECH_CATS, UNITS } from '../data/rules.js';
-import { canResearch, researchCost, researchSpeed, hasTech, focusTrees, focusAvailable, focusDays, cname } from '../core/engine.js';
+import { canResearch, researchCost, researchSpeed, hasTech, focusTrees, focusAvailable, focusDays, cname, rname } from '../core/engine.js';
+import { WORLD } from '../core/world.js';
 import { yearOf } from '../core/util.js';
 import { MODELS, modelFor } from '../data/models.js';
 import { modelSVG, uiIcon, glyphSVG } from './icons.js';
@@ -380,7 +381,9 @@ function focusDetail(S, me, id, sheet) {
     h += '</div>';
   }
   if ((f.excl || []).length) h += `<div class="dt-sec">互斥（完成此國策後無法再選）</div><div class="dt-req">${f.excl.map(q => `<span class="no">⇄ ${ESC(byId[q] ? byId[q].name : q)}</span>`).join('')}</div>`;
-  if (f.minYear || f.maxYear || f.coastal) h += `<div class="dt-note">${f.minYear ? `${f.minYear} 年起可選。` : ''}${f.maxYear ? `${f.maxYear} 年後無法再選。` : ''}${f.coastal ? '需要擁有海岸線。' : ''}</div>`;
+  const IDN = { dem: '民主', com: '共產', fas: '法西斯', neu: '中立／威權' };
+  if (f.minYear || f.maxYear || f.coastal || f.ctrlAny || f.ideoReq) h += `<div class="dt-note">${f.minYear ? `${f.minYear} 年起可選。` : ''}${f.maxYear ? `${f.maxYear} 年後無法再選。` : ''}${f.coastal ? '需要擁有海岸線。' : ''}${f.ctrlAny ? `${ESC(f.ctrlMsg || '需要控制特定地區')}（${f.ctrlAny.slice(0, 4).map(id => { const r = WORLD.idx.get(id); return r === undefined ? id : ESC(rname(S, r)); }).join('、')}${f.ctrlAny.length > 4 ? ' 等' : ''}）。` : ''}${f.ideoReq ? `限${f.ideoReq.map(i => IDN[i]).join('或')}政體。` : ''}</div>`;
+  if (f.th) h += `<div class="dt-note">理論樹：所有國家都可以選擇的發展路線。同一組理論只能選一種。</div>`;
   h += `<div class="dt-note">${f.hist ? '這是歷史上的選擇，AI 在「依照歷史」模式下會走這條路。' : f.alt ? '架空歷史路線：AI 在「依照歷史」模式下不會選擇，由你改寫歷史。' : '完成後立即獲得上述效果。國策一次只能進行一項。'}</div>`;
   if (sheet) h += `<div class="dt-act">${!done && !cur && !err && !C.focus.cur ? `<button class="btn gold" data-dact="focus:${f.id}">開始此國策</button>` : ''}<button class="btn" data-dact="close:">關閉</button></div>`;
   return h;

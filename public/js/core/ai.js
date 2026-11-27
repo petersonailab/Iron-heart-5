@@ -142,6 +142,7 @@ function aiResearch(S, t) {
       else if (T.cat === 'air' && T.lane === 5 && !navy) w *= 0.3;
       else if (T.cat === 'arm' && T.lane === 2 && !major) w *= 0.4;
       if (T.e.unlock) w *= 1.3;
+      if (T.minor) w *= 0.7;
       const sc = w / researchCost(S, t, T.id) * (0.8 + 0.4 * rand(S));
       if (sc > bs) { bs = sc; best = T.id; }
     }
@@ -157,8 +158,20 @@ function aiFocus(S, t) {
   if (S.set.hist) avail = avail.filter(f => !f.alt && !f.eff.war && !f.eff.joinFac && !f.eff.ideo);
   if (!avail.length) return;
   const hist = avail.filter(f => f.hist);
-  const pool = hist.length ? hist : avail;
-  const f = pool[Math.floor(rand(S) * Math.min(2, pool.length))];
+  const nat = avail.filter(f => !f.th);
+  let f;
+  const th = avail.filter(x => x.th);
+  // 本國國策優先，但約四分之一的時間會穿插理論樹，讓各國的理論進度相近
+  if ((hist.length || nat.length) && !(th.length && rand(S) < 0.25)) { const pool = hist.length ? hist : nat; f = pool[Math.floor(rand(S) * Math.min(2, pool.length))]; }
+  else {
+    avail = th.length ? th : avail;
+    // 理論樹：依意識形態與國家偏好加權隨機選擇
+    let tot = 0;
+    const w = avail.map(x => { const v = (x.aiTags && x.aiTags.includes(t) ? 6 : 0) + (x.aiIdeo && x.aiIdeo.includes(C.ideo) ? 3 : 0) + (x.excl && x.excl.length ? 0.4 : 1) + (x.eff.ind || x.eff.icp ? 0.5 : 0); tot += v; return v; });
+    let r = rand(S) * tot, k = 0;
+    while (k < w.length - 1 && r >= w[k]) { r -= w[k]; k++; }
+    f = avail[k];
+  }
   C.focus.cur = f.id; C.focus.prog = 0;
 }
 function aiPolitics(S, t) {
@@ -223,7 +236,7 @@ function targetAllowed(S, t, e, post) {
 function aiMilitary(S, t, mode, idx) {
   const C = S.C[t];
   const post = posture(S, t);
-  const mine = S.units.filter(u => u.c === t && !u.dead && isLandUnit(u) && (mode === 'all' || u.auto));
+  const mine = S.units.filter(u => u.c === t && !u.dead && isLandUnit(u) && (mode === 'all' || u.auto) && !(u.manual > S.day && u.path && u.path.length));
   if (!mine.length) return;
   const enemies = enemySet(S, t);
   if (!enemies.size) { if ((S.day + hashTag(t)) % 15 === 0) peaceDeploy(S, t, mine, idx); return; }

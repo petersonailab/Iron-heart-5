@@ -38,6 +38,7 @@ export function focusEffects(S, tag, e) {
   }
   if (e.fort) out.push({ ic: 'fort', t: `邊境要塞 +${e.fort} 級`, d: '在與他國接壤的重要地區修築要塞（每級防禦 +20%，最多 5 級）。', good: true });
   if (e.fortAt) out.push({ ic: 'fort', t: `要塞 +${e.fortLvl} 級`, d: `地點：${e.fortAt.map(id => { const r = WORLD.idx.get(id); return r === undefined ? id : (S ? rname(S, r) : WORLD.nodes[r].name); }).join('、')}（每級防禦 +20%）。`, good: true });
+  if (e.capFort) out.push({ ic: 'fort', t: `首都要塞 +${e.capFort} 級`, d: '在首都周邊修築環形防禦工事（每級防禦 +20%）。', good: true });
   if (e.coastFort) out.push({ ic: 'fort', t: `沿海要塞 +${e.coastFort} 級`, d: '在最重要的 6 個沿海地區修築海岸防禦，抵禦兩棲登陸。', good: true });
   if (e.ideo) out.push({ ic: 'politics', t: `意識形態改為${ideoName[e.ideo] || e.ideo}`, d: '影響可頒布的法律、陣營關係與 AI 的外交態度。', good: null });
   if (e.joinFac) out.push({ ic: 'diplomacy', t: { dem: '加入民主陣營', fas: '加入軸心國', com: '加入共產陣營' }[e.joinFac] || '加入陣營', d: '成為陣營成員：盟友遭攻擊時會一同參戰。', good: null });

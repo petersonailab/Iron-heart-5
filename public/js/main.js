@@ -460,9 +460,9 @@ function renderPanel() {
 // 分頁按鈕改用統一風格的圖示
 for (const b of document.querySelectorAll('#tabs button')) { const i = b.querySelector('i'); if (i) i.innerHTML = uiIcon({ politics: 'politics', research: 'research', production: 'production', diplomacy: 'diplomacy', army: 'army', news: 'news' }[b.dataset.tab]); }
 initTrees({ S: () => S, me: () => me, cmd: (c) => cmd(c), toast: (t, k) => toast(t, k), esc: (x) => esc(x), effText: (e) => effText(e) });
-function cmd(c, okMsg) {
+function cmd(c, okMsg, silent) {
   if (!G) return Promise.resolve(null);
-  return G.command(c).then(r => { if (r && !r.ok && r.msg) toast(r.msg, 'warn'); else if (r && r.ok && (okMsg || r.msg)) toast(okMsg || r.msg); onUpdate(true); return r; });
+  return G.command(c).then(r => { if (r && !r.ok && r.msg) toast(r.msg, 'warn'); else if (r && r.ok && !silent && (okMsg || r.msg)) toast(okMsg || r.msg); onUpdate(true); return r; });
 }
 
 // ---------------- 政治
@@ -489,6 +489,7 @@ function effText(e) {
   if (e.upk) out.push(`部隊維持費 -${Math.round(e.upk * 100)}%`);
   if (e.escort) out.push(`海運損失 -${Math.round(e.escort * 100)}%`);
   if (e.coastFort) out.push('沿海要塞');
+  if (e.capFort) out.push(`首都要塞 +${e.capFort}`);
   if (e.units) out.push(Object.entries(e.units).map(([t, n]) => `${UNITS[t] ? UNITS[t].name : t}×${n}`).join('、'));
   if (e.techs) out.push('獲得科技：' + e.techs.map(id => TECH_MAP[id] ? TECH_MAP[id].name : id).join('、'));
   if (e.rcat) out.push(Object.entries(e.rcat).map(([k, v]) => `${(TECH_CATS.find(c => c.id === k) || { name: k }).name}研究 +${Math.round(v * 100)}%`).join('、'));
@@ -813,7 +814,7 @@ function renderSel() {
   }
   if (selRegion >= 0) {
     const n = selRegion, nd = nodes[n];
-    const rsig = 'r' + n + ':' + S.ctrl[n] + ':' + S.own[n] + ':' + S.ind[n] + ':' + S.fort[n] + ':' + S.units.filter(u => u.n === n).length + ':' + (me && S.C[me] ? S.C[me].nukes : 0);
+    const rsig = 'r' + n + ':' + S.ctrl[n] + ':' + S.own[n] + ':' + S.ind[n] + ':' + S.fort[n] + ':' + S.units.filter(u => u.n === n).length + ':' + (me && S.C[me] ? S.C[me].nukes + ':' + atWar(S, me, S.ctrl[n]) + ':' + Math.floor(S.C[me].pp / 10) : 0);
     if (rsig === selSig && !box.classList.contains('hidden')) return;
     selSig = rsig;
     if (n >= R) {
@@ -834,11 +835,81 @@ function renderSel() {
       ${unitsHere(here)}
       <div class="actions">${mineCtl ? `<button class="btn small" data-rdeploy="${n}">設為部署地點</button><button class="btn small" data-rfac="${n}">建造工廠</button><button class="btn small" data-rfort="${n}">建造要塞</button>` : ''}
       ${canNuke ? `<button class="btn small red" data-rnuke="${n}">☢ 使用核彈</button>` : ''}
-      ${ctl && ctl !== me && alive(S, ctl) ? `<button class="btn small" data-rdip="${ctl}">外交：${nameOf(ctl)}</button>` : ''}</div>`;
+      ${ctl && ctl !== me && alive(S, ctl) ? `<button class="btn small" data-rdip="${ctl}">外交：${nameOf(ctl)}</button>` : ''}</div>
+      ${regionOrders(n, ctl)}`;
     box.classList.remove('hidden'); return;
   }
   selSig = '';
   box.classList.add('hidden');
+}
+// 地區面板的軍事選項：進攻敵方地區、宣戰後進攻、派兵防守己方地區
+function regionOrders(n, ctl) {
+  if (!me || !S.C[me] || !alive(S, me)) return '';
+  const mineN = S.units.filter(u => u.c === me && !u.dead && isLandUnit(u) && u.n < R).length;
+  if (!mineN) return '';
+  const nm = regName(n);
+  if (ctl && ctl !== me && atWar(S, me, ctl)) {
+    const k = pickForces(n, 'attack').length, all = pickForces(n, 'all').length;
+    return `<div class="rorders"><div class="ro-t">⚔ 對${esc(nm)}的軍事行動</div><div class="actions">
+      <button class="btn small red" data-ratk="${n}" ${k ? '' : 'disabled'}>⚔ 進攻此地區（派 ${k} 個師）</button>
+      ${all > k ? `<button class="btn small red" data-ratkall="${n}">⚔⚔ 全力進攻（${all} 個師）</button>` : ''}</div>
+      <div class="ro-h">從附近抽調部隊；只剩一兩個師把守的前線不會被抽走。${S.C[me].autoArmy ? '受命部隊在抵達前不受「AI 指揮全軍」改派。' : ''}</div></div>`;
+  }
+  if (ctl && ctl !== me && alive(S, ctl) && !friendly(S, me, ctl)) {
+    const err = canDeclare(S, me, ctl), cost = warCost(S, me, ctl);
+    return `<div class="rorders"><div class="ro-t">⚔ 進攻${esc(nm)}</div><div class="actions">
+      <button class="btn small red" data-rdecl="${n}" ${err ? 'disabled' : ''}>⚔ 向${nameOf(ctl)}宣戰並進攻（${cost} 政治點數）</button></div>
+      <div class="ro-h">${err ? '🔒 ' + esc(err) : `你目前沒有與${nameOf(ctl)}交戰；宣戰後會立即從附近派兵進攻這個地區。`}</div></div>`;
+  }
+  if (ctl === me || (ctl && friendly(S, me, ctl))) {
+    const enemies = enemySet(S, me);
+    const threat = enemies.size && nodes[n].landNb.some(nb => enemies.has(S.ctrl[nb]));
+    const k = pickForces(n, 'defend').length;
+    if (!k) return '';
+    return `<div class="rorders"><div class="actions"><button class="btn small" data-rdef="${n}">🛡 派附近部隊防守（${k} 個師）</button></div>${threat ? '<div class="ro-h">⚠ 這個地區與敵軍接壤。</div>' : ''}</div>`;
+  }
+  return '';
+}
+// 依距離挑選可調動的部隊（保留前線的最後守軍）
+function pickForces(target, mode) {
+  const enemies = enemySet(S, me);
+  const cnt = new Map();
+  for (const u of S.units) if (!u.dead && u.c === me && isLandUnit(u) && u.n < R) cnt.set(u.n, (cnt.get(u.n) || 0) + 1);
+  const front = (r) => enemies.size && nodes[r].landNb.some(nb => nb !== target && enemies.has(S.ctrl[nb]));
+  const foes = S.units.filter(u => u.n === target && !u.dead && isLandUnit(u) && u.c !== me && enemies.has(u.c)).length;
+  const want = mode === 'all' ? 40 : mode === 'defend' ? 4 : Math.min(24, Math.max(4, foes * 2 + 3));
+  const maxD = mode === 'all' ? 2600 : 1800;
+  const list = [];
+  for (const u of S.units) {
+    if (u.dead || u.c !== me || !isLandUnit(u) || u.n >= R || u.n === target || u.hp < 35) continue;
+    const d = WORLD.dist[u.n * R + target];
+    if (!(d <= maxD)) continue;
+    if (front(u.n) && cnt.get(u.n) <= 2) continue;
+    list.push([d, u]);
+  }
+  list.sort((a, b) => a[0] - b[0]);
+  const out = [], used = new Map();
+  for (const [, u] of list) {
+    if (out.length >= want) break;
+    // 同一地區至少留下一個師
+    const left = cnt.get(u.n) - (used.get(u.n) || 0);
+    if (front(u.n) && left <= 2) continue;
+    if (left <= 1 && S.ctrl[u.n] === me && nodes[u.n].vp >= 5) continue;
+    used.set(u.n, (used.get(u.n) || 0) + 1);
+    out.push(u.id);
+  }
+  return out;
+}
+function sendForces(n, mode) {
+  const ids = pickForces(n, mode);
+  if (!ids.length) { toast('附近沒有可以調動的部隊', 'warn'); return; }
+  cmd({ type: 'move', units: ids, to: n }, null, true).then(r => {
+    if (!r || !r.ok) return;
+    const k = Number((r.msg || '').match(/\d+/)?.[0] || ids.length);
+    toast(mode === 'defend' ? `已派 ${k} 個師前往防守${regName(n)}` : `⚔ 已派 ${k} 個師進攻${regName(n)}`);
+    sel.clear(); for (const id of ids) if (S.units.some(u => u.id === id && u.path && u.path.length)) sel.add(id);
+    syncSel();
+  });
 }
 function unitsHere(list) {
   if (!list.length) return '';
@@ -847,7 +918,7 @@ function unitsHere(list) {
   return `<div class="units">${Object.entries(by).map(([c, ts]) => `<span class="uchip">${sw(c)}${nameOf(c)}：${Object.entries(ts).map(([t, k]) => `${UNITS[t].short}${k}`).join(' ')}</span>`).join('')}</div>`;
 }
 $('#selbox').addEventListener('click', (e) => {
-  const t = e.target.closest('[data-sx],[data-sord],[data-sstop],[data-sauto],[data-sloc],[data-sdis],[data-rdeploy],[data-rfac],[data-rfort],[data-rnuke],[data-rdip]');
+  const t = e.target.closest('[data-sx],[data-sord],[data-sstop],[data-sauto],[data-sloc],[data-sdis],[data-rdeploy],[data-rfac],[data-rfort],[data-rnuke],[data-rdip],[data-ratk],[data-ratkall],[data-rdecl],[data-rdef]');
   if (!t) return;
   const d = t.dataset;
   if (d.sx) { sel.clear(); selRegion = -1; map.selRegion = -1; syncSel(); }
@@ -860,6 +931,14 @@ $('#selbox').addEventListener('click', (e) => {
   else if (d.rfac) cmd({ type: 'prod_add', item: 'factory', n: 1, tgt: Number(d.rfac) }, '已加入工廠建造');
   else if (d.rfort) cmd({ type: 'prod_add', item: 'fort', n: 1, tgt: Number(d.rfort) }, '已加入要塞建造');
   else if (d.rnuke) confirmBox('☢ 使用核子武器？', `核子武器將摧毀${regName(Number(d.rnuke))}的大部分軍隊與工業，造成大量平民死傷，並大幅提升世界緊張度。若對方擁有核武，將遭到核子報復。`, () => cmd({ type: 'nuke', region: Number(d.rnuke) }));
+  else if (d.ratk) sendForces(Number(d.ratk), 'attack');
+  else if (d.ratkall) sendForces(Number(d.ratkall), 'all');
+  else if (d.rdef) sendForces(Number(d.rdef), 'defend');
+  else if (d.rdecl) {
+    const n = Number(d.rdecl), ctl = S.ctrl[n];
+    confirmBox(`向${cname(S, ctl)}宣戰？`, `花費 ${warCost(S, me, ctl)} 政治點數向${cname(S, ctl)}宣戰，並立即從附近派兵進攻${regName(n)}。對方的盟友可能會加入戰爭。`,
+      () => cmd({ type: 'declare', target: ctl }).then(r => { if (r && r.ok) setTimeout(() => sendForces(n, 'attack'), G instanceof RemoteGame ? 600 : 0); }));
+  }
   else if (d.rdip) { ui.dipOpen = d.rdip; ui.dipFilter = 'all'; ui.dipSearch = cname(S, d.rdip); openPanel('diplomacy'); }
 });
 
@@ -1103,7 +1182,7 @@ function openHelp() {
   modal(`<header><h3>遊戲說明</h3><small>烽火世紀 1936–1991</small></header><div class="db help">
     <p>你將領導一個國家，從二戰前夕一路走到冷戰結束（1991 年 12 月 26 日蘇聯解體）。發展工業、研究科技、建立軍隊，透過外交與戰爭讓你的國家成為世界強權。</p>
     <h4>⏱ 時間</h4><p>遊戲是即時進行（可暫停）。按 <kbd>空白鍵</kbd> 暫停/繼續，<kbd>1</kbd>–<kbd>5</kbd> 調整速度。暫停時仍可下達所有指令。</p>
-    <h4>🎖️ 指揮部隊</h4><ul><li>點擊地圖上的部隊標誌（左邊是國旗、中間是兵種符號、右邊是師數）即可選取；<kbd>Shift</kbd>+點擊可加選，<kbd>Shift</kbd>+拖曳可框選。</li><li><b>右鍵點擊</b>目標地區即可移動；若目標屬於敵國，部隊會自動發動進攻。手機上可用「移動/進攻」按鈕或長按地圖。</li><li>方塊下方的條是<b>組織度</b>（綠＞黃＞紅）。組織度歸零的守軍會撤退；若無路可退會被<b>包圍殲滅</b>。</li><li>地形、要塞、補給、制空權與科技都會影響戰鬥。斷絕補給的部隊戰力大減並持續損耗。</li><li>部隊可以經由海路運輸；若進攻敵方沿海地區即為<b>兩棲登陸</b>（陸戰隊懲罰較小）。敵方佔有制海權的海域非常危險。</li></ul>
+    <h4>🎖️ 指揮部隊</h4><ul><li><b>最簡單的進攻方式</b>：點擊敵方地區，在下方的地區資訊按「⚔ 進攻此地區」，會自動從附近派兵；還沒開戰的國家可以直接「宣戰並進攻」。</li><li>點擊地圖上的部隊標誌（左邊是國旗、中間是兵種符號、右邊是師數）即可選取；<kbd>Shift</kbd>+點擊可加選，<kbd>Shift</kbd>+拖曳可框選。</li><li><b>右鍵點擊</b>目標地區即可移動；若目標屬於敵國，部隊會自動發動進攻。手機上可用「移動/進攻」按鈕或長按地圖。</li><li>方塊下方的條是<b>組織度</b>（綠＞黃＞紅）。組織度歸零的守軍會撤退；若無路可退會被<b>包圍殲滅</b>。</li><li>地形、要塞、補給、制空權與科技都會影響戰鬥。斷絕補給的部隊戰力大減並持續損耗。</li><li>部隊可以經由海路運輸；若進攻敵方沿海地區即為<b>兩棲登陸</b>（陸戰隊懲罰較小）。敵方佔有制海權的海域非常危險。</li></ul>
     <h4>🏭 生產</h4><p>工業（工廠）提供每日產能，扣除部隊維持費後平均分配給各生產線。部隊完成後會出現在首都或你設定的部署地點。和平時期多蓋工廠，戰時全力造兵！</p>
     <p>兵種：步兵、陸戰隊、機械化步兵、輕型／中型／重型坦克、主力戰車；戰鬥機、噴射戰鬥機、近接支援機、戰術轟炸機、戰略轟炸機、海軍轟炸機、武裝直升機；水面艦隊、航艦戰鬥群、潛艇。新兵種需要先研究對應科技。</p>
     <h4>🔬 科技樹</h4><p>約 180 項科技依真實年份排列（例如 T-34 的「中型坦克 II」在 1940 年、噴射戰鬥機在 1944 年、主力戰車在 1947 年）。科技之間沒有互斥；提早研究「超前時代」的科技會很慢，落後的科技則可以加速追趕。在「研究」分頁按「開啟科技樹」即可瀏覽。</p>
@@ -1154,4 +1233,4 @@ function startTutorial() {
 
 window.addEventListener('beforeunload', (e) => { if (G && (G.net || (S && S.day > (S.startDay || 0) + 30))) { e.preventDefault(); e.returnValue = ''; } });
 // 開發用
-window.__cof = { get G() { return G; }, get S() { return S; }, get me() { return me; }, map };
+window.__cof = { get G() { return G; }, get S() { return S; }, get me() { return me; }, map, selectRegion: (n) => regionClick(n) };

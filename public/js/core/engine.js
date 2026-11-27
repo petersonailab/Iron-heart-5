@@ -700,26 +700,42 @@ const FT_CACHE = new WeakMap();
 export function focusTrees(S, tag) {
   const C = S.C[tag]; if (!C) return [];
   const y = yearOf(S.day);
-  const key = y + '|' + C.focus.done.length;
+  const key = y + '|' + C.focus.done.length + (tag === 'CHI' ? '|' + chiCtrl(S, TAIWAN_IDS) + chiCtrl(S, MAINLAND_IDS) : '');
   const c = FT_CACHE.get(C);
   if (c && c.key === key && c.tag === tag) return c.out;
   const out = [];
-  const nat = FOCUS[tag], cold = FOCUS[tag + '_COLD'];
+  const nat = FOCUS[tag];
+  let cold = FOCUS[tag + '_COLD'];
   const done = new Set(C.focus.done);
   if (nat) out.push({ key: tag, name: nat.name, list: nat.list });
+  // 中華民國：控制臺灣時才有臺灣的國策；戰後仍保有大陸時改用大陸的國策
+  if (tag === 'CHI' && y >= 1946) {
+    const has = (pre) => C.focus.done.some(id => id.startsWith(pre)) || (C.focus.cur || '').startsWith(pre);
+    if (!(chiCtrl(S, TAIWAN_IDS) || has('c2_'))) cold = null;
+    if (chiCtrl(S, MAINLAND_IDS) || has('cm_')) out.push({ key: 'CHI_MAIN', name: FOCUS.CHI_MAIN.name, list: FOCUS.CHI_MAIN.list });
+  }
   if (cold && (y >= 1946 || !nat)) out.push({ key: tag + '_COLD', name: cold.name, list: cold.list });
   const exhausted = (t) => t.list.every(f => done.has(f.id) || (f.excl && f.excl.some(q => done.has(q))) || (f.alt && S.set.hist && C.ai) || (f.maxYear && y > f.maxYear) || (f.minYear && f.minYear > y + 8));
   if (!nat && !cold) out.push({ key: 'GENERIC', name: FOCUS.GENERIC.name, list: FOCUS.GENERIC.list });
   else if (out.every(exhausted) || C.focus.done.some(id => id.startsWith('n_'))) out.push({ key: 'GENERIC', name: FOCUS.GENERIC.name, list: FOCUS.GENERIC.list });
-  if (y >= 1946 && !cold) out.push({ key: 'GENERIC_COLD', name: FOCUS.GENERIC_COLD.name, list: FOCUS.GENERIC_COLD.list });
+  if (y >= 1946 && !cold && tag !== 'CHI') out.push({ key: 'GENERIC_COLD', name: FOCUS.GENERIC_COLD.name, list: FOCUS.GENERIC_COLD.list });
+  // 所有國家共用的五棵理論樹
+  for (const k of THEORY_KEYS) out.push({ key: k, name: FOCUS[k].name, list: FOCUS[k].list, theory: true });
   FT_CACHE.set(C, { key, tag, out });
   return out;
 }
 export function focusList(S, tag) { return focusTrees(S, tag).flatMap(t => t.list); }
+const THEORY_KEYS = ['TH_MIL', 'TH_ECO', 'TH_DEF', 'TH_LIFE', 'TH_POL'];
+const TAIWAN_IDS = ['jap_taipei', 'jap_kaohsiung'];
+const MAINLAND_IDS = ['chi_nanjing', 'chi_shanghai', 'chi_beiping', 'chi_wuhan', 'chi_guangzhou', 'chi_chongqing', 'chi_chengdu', 'chi_xian', 'chi_changsha', 'chi_hangzhou', 'chi_jinan', 'chi_zhengzhou'];
+function chiCtrl(S, ids) { for (const id of ids) { const r = WORLD.idx.get(id); if (r !== undefined && S.ctrl[r] === 'CHI') return 1; } return 0; }
+const IDEO_NAME = { dem: '民主', com: '共產', fas: '法西斯', neu: '中立／威權' };
 export function focusDays(S, tag, f) { return f.days; }
 export function focusAvailable(S, tag, f) {
   const C = S.C[tag], done = C.focus.done;
   if (done.includes(f.id)) return '已完成';
+  if (f.ideoReq && !f.ideoReq.includes(C.ideo)) return `需要${f.ideoReq.map(i => IDEO_NAME[i] || i).join('或')}政體`;
+  if (f.ctrlAny && !f.ctrlAny.some(id => { const r = WORLD.idx.get(id); return r !== undefined && S.ctrl[r] === tag; })) return f.ctrlMsg || '需要控制特定地區';
   if (f.excl && f.excl.some(q => done.includes(q) || C.focus.cur === q)) return '與已選國策互斥';
   if (f.req.some(q => !done.includes(q))) return '需要先完成前置國策';
   if (f.reqAny && !f.reqAny.some(q => done.includes(q))) return '需要先完成任一前置國策';
@@ -769,6 +785,7 @@ function applyFocus(S, tag, f) {
   if (e.units) for (const t0 in e.units) { const t = bestUnitType(S, tag, t0); for (let i = 0; i < e.units[t0]; i++) spawnUnit(S, tag, t, deployRegion(S, tag, t), { auto: !C.ai && C.autoDeploy && UNITS[t].domain === 'land' }); }
   if (e.fort) addBorderForts(S, tag, e.fort);
   if (e.fortAt) for (const id of e.fortAt) { const r = WORLD.idx.get(id); if (r !== undefined && S.ctrl[r] === tag) S.fort[r] = Math.min(5, S.fort[r] + e.fortLvl); }
+  if (e.capFort && C.cap >= 0 && S.ctrl[C.cap] === tag) S.fort[C.cap] = Math.min(5, S.fort[C.cap] + e.capFort);
 }
 function removeIndustry(S, tag, n) {
   const regs = [];

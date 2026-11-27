@@ -734,11 +734,35 @@ ev({ id: 'chinese_civil_war', date: '1946-06-26', until: '1949-12-31', kind: 'wa
     // 接收日軍與蘇聯移交的武器：科技水準追上國軍
     if (A.exists('CHI')) A.grant('PRC', A.S.C.CHI.techs);
     A.units('PRC', { inf: 10 }, 'prc_yanan');
-    A.tempMod('CHI', 'att', -0.35, 1300); A.tempMod('CHI', 'def', -0.3, 1300);
+    // 國策帶來的額外加成在內戰中被惡性通膨與士氣崩潰抵銷（AI 扮演國民政府時，維持史實的戰力對比）
+    const exA = A.isAI('CHI') ? Math.max(0, S.C.CHI.mods.att - 0.1) : 0, exD = A.isAI('CHI') ? Math.max(0, S.C.CHI.mods.def - 0.25) : 0;
+    A.tempMod('CHI', 'att', -0.35 - exA, 1300); A.tempMod('CHI', 'def', -0.3 - exD, 1300);
     for (const u of A.S.units) if (u.c === 'CHI' && !u.dead && u.n < R && nodes[u.n].mod === 'CHN' && Math.random() < 0.3) u.c = 'PRC';
     A.war('PRC', 'CHI', { limited: true }); A.civil('PRC', 'CHI');
     A.lend('SOV', 'PRC', 0.04); A.lend('USA', 'CHI', 0.03);
   } }, { t: '維持國共和平', fx: () => {} }] });
+// ---- 國共內戰的決定性戰役：AI 扮演國民政府時依史實推進（真人玩家扮演國民政府則由戰場決定）
+const civilAI = (A) => A.S.set.hist && A.isAI('CHI') && A.exists('PRC') && A.exists('CHI') && A.atWar('CHI', 'PRC');
+function civilStep(A, ids, inf, where) {
+  const S = A.S, rs = ids.map(id => A.rid(id)).filter(r => r >= 0 && S.ctrl[r] !== 'PRC');
+  // 被包圍的國軍部隊起義或被殲滅
+  for (const u of S.units) if (u.c === 'CHI' && !u.dead && rs.includes(u.n)) { if (rand(S) < 0.6) { u.c = 'PRC'; u.path = []; } else u.dead = true; }
+  S.units = S.units.filter(u => !u.dead);
+  for (const r of rs) if (S.own[r] === 'CHI' || S.ctrl[r] === 'CHI') transferRegion(S, r, 'PRC');
+  if (inf && A.ctrls('PRC', where)) A.units('PRC', { inf }, where);
+}
+ev({ id: 'liaoshen', date: '1948-11-02', until: '1949-06-30', kind: 'news', title: '遼瀋戰役', cond: civilAI,
+  text: '東北野戰軍攻克錦州、長春與瀋陽，國軍在東北的精銳部隊全軍覆沒，共軍取得全東北。',
+  fire: A => civilStep(A, ['man_mukden', 'man_xinjing', 'man_harbin', 'man_qiqihar', 'man_jehol', 'man_mudanjiang', 'man_hailar', 'man_heihe', 'jap_dalian'], 4, 'man_mukden') });
+ev({ id: 'huaihai', date: '1949-01-10', until: '1949-06-30', kind: 'news', title: '淮海戰役', cond: civilAI,
+  text: '徐蚌會戰（淮海戰役）中，國軍黃百韜、黃維、杜聿明兵團相繼被殲，長江以北的國軍主力損失殆盡。',
+  fire: A => civilStep(A, ['chi_xuzhou', 'chi_jinan', 'chi_qingdao', 'chi_hefei', 'chi_zhengzhou'], 4, 'chi_xuzhou') });
+ev({ id: 'pingjin', date: '1949-01-31', until: '1949-09-30', kind: 'news', title: '北平和平解放', cond: civilAI,
+  text: '平津戰役：天津被攻克後，華北剿總司令傅作義接受改編，共軍和平進入北平。',
+  fire: A => civilStep(A, ['chi_beiping', 'chi_shijiazhuang', 'chi_taiyuan', 'chi_datong', 'chi_chahar', 'chi_suiyuan'], 3, 'chi_beiping') });
+ev({ id: 'dujiang', date: '1949-04-23', until: '1949-11-30', kind: 'news', title: '渡江戰役', cond: civilAI,
+  text: '共軍百萬大軍橫渡長江，攻佔國民政府首都南京，隨後進入上海、杭州與武漢。',
+  fire: A => { civilStep(A, ['chi_nanjing', 'chi_shanghai', 'chi_hangzhou', 'chi_wuhan', 'chi_nanchang', 'chi_xian', 'chi_lanzhou'], 4, 'chi_nanjing'); if (A.ctrls('CHI', 'chi_guangzhou')) A.S.C.CHI.cap = A.rid('chi_guangzhou'); } });
 ev({ id: 'india_partition', date: '1947-08-15', kind: 'struct', title: '印巴分治', cond: A => A.exists('RAJ'),
   text: '英屬印度依宗教分為印度與巴基斯坦兩國獨立。分治引發大規模遷徙與暴力衝突，約一千五百萬人流離失所，數十萬人死亡。',
   fire: A => {
@@ -1086,6 +1110,7 @@ function historyGuide(S, A) {
       for (const u of mainland) if (rand(S) < 0.05) { u.c = 'PRC'; u.auto = false; }
     }
     if (A.isAI('PRC')) { const r = safeRegion(S, 'PRC'); if (r >= 0) A.units('PRC', { inf: 2 }, r); }
+    if (A.isAI('CHI') && S.set.hist) S.C.PRC.capMod = Math.min(S.C.PRC.capMod || 1, 0.3);
   }
   if (y < 1941 || y > 1947) return;
   // 1945 年起：德國燃料與兵源枯竭（AI 德國若仍在兩線作戰）
@@ -1098,7 +1123,7 @@ function historyGuide(S, A) {
     if (r >= 0 && lost > 0.2) A.units('SOV', { inf: lost > 0.35 ? 4 : 2 }, r);
     if (lost > 0.3) { A.tempMod('SOV', 'def', 0.1, 30); A.tempMod('SOV', 'att', 0.05, 30); }
     // 工業東遷與租借法案：史實上蘇聯自 1942 年起的坦克與飛機產量都超過德國
-    if (y >= 1942 && (C.ic || 0) < (S.C.GER.ic || 0) * 1.15) A.tempMod('SOV', 'icp', y >= 1943 ? 0.15 : 0.1, 30);
+    if (y >= 1942 && lost > 0.1 && (C.ic || 0) < (S.C.GER.ic || 0) * 1.1) A.tempMod('SOV', 'icp', y >= 1943 ? 0.12 : 0.08, 30);
   }
   // 德國：兩線作戰與盟軍戰略轟炸造成的資源枯竭
   const deep = ['sov_moscow', 'sov_leningrad', 'sov_stalingrad'].some(id => A.ctrl(id) === 'GER') || (A.exists('SOV') && (S.C.SOV.surrender || 0) > 0.25);

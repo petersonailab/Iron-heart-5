@@ -97,6 +97,17 @@ function tankShape(p) {
   const hy = 41 - H, sl = (p.slope ?? 0.4) * H * 1.4;
   const out = [[d, 'e'], [`M${x0 + 2} 41L${x0} ${r1(hy + H * 0.35)}L${x0 + 6} ${hy}H${r1(x1 - 6 - sl)}L${x1 + 2} ${r1(hy + H * 0.6)}L${x1 - 1} 41Z`, 'f']];
   if (p.skirt) out.push([`M${x0 + 3} 40H${x1 - 2}V46.5H${x0 + 3}Z`, 'f']);
+  // 無砲塔的突擊砲、驅逐戰車與自走砲（固定戰鬥室）
+  if (p.casemate) {
+    const ch = p.th || 11, cx0 = x0 + L * (p.open ? 0.3 : 0.16), cx1 = x0 + L * 0.84;
+    if (p.open) out.push([`M${r1(cx0)} ${hy}V${r1(hy - ch)}H${r1(cx0 + 3)}V${r1(hy - 3)}H${r1(cx1 - 6)}V${r1(hy - ch)}L${r1(cx1)} ${hy}Z`, 'f']);
+    else out.push([`M${r1(cx0)} ${hy}L${r1(cx0 + 5)} ${r1(hy - ch)}H${r1(cx1 - ch * (p.slope ?? 0.6) * 1.2)}L${r1(cx1)} ${hy}Z`, 'f']);
+    const gy = hy - ch * (p.open ? 0.75 : 0.5), gl = p.gun || 30, gx = p.open ? cx1 - 8 : cx1 - ch * 0.7, gt = p.gt || 2.6;
+    if (p.elev) out.push([rotRect(gx, gy, gl, gt + 0.6, p.elev), 'f']);
+    else out.push([`M${r1(gx)} ${r1(gy - gt / 2)}H${r1(gx + gl)}V${r1(gy + gt / 2)}H${r1(gx)}Z`, 'f']);
+    if (p.muzzle) out.push([`M${r1(gx + gl - 4)} ${r1(gy - gt)}h4v${r1(gt * 2)}h-4Z`, 'f']);
+    return { paths: out, w: Math.max(x1 + 2, gx + (p.elev ? Math.cos(p.elev * Math.PI / 180) * gl : gl)) };
+  }
   const tw = p.tw || 30, th = p.th || 11, tx = x0 + L * (p.tpos || 0.42);
   if (p.round) out.push([`M${r1(tx - tw / 2)} ${hy}C${r1(tx - tw / 2)} ${r1(hy - th * 1.25)} ${r1(tx + tw / 2)} ${r1(hy - th * 1.35)} ${r1(tx + tw / 2 + 2)} ${hy}Z`, 'f']);
   else if (p.flat) out.push([`M${r1(tx - tw / 2)} ${hy}L${r1(tx - tw / 2 + 2)} ${r1(hy - th)}H${r1(tx + tw / 2 - 5)}L${r1(tx + tw / 2 + 4)} ${r1(hy - th * 0.45)}L${r1(tx + tw / 2)} ${hy}Z`, 'f']);
@@ -142,6 +153,7 @@ function planeShape(p) {
   if (p.eng === 'twinjet') out.push([pods(0.3), 'f']);
   if (p.eng === 'eight') out.push([pods(0.3) + pods(0.6), 'f']);
   if (p.eng === 'rear') out.push([`M${r1(len * 0.22)} ${c - 9}h${r1(len * 0.14)}v5h-${r1(len * 0.14)}ZM${r1(len * 0.22)} ${c + 4}h${r1(len * 0.14)}v5h-${r1(len * 0.14)}Z`, 'f']);
+  if (p.dome) out.push([CIRC(len * 0.38, c, span * 0.17), 'f']);
   if (p.twintail) out.push([`M${r1(len * 0.04)} ${c - 6}h${r1(len * 0.18)}v1.6h-${r1(len * 0.18)}ZM${r1(len * 0.04)} ${c + 4.4}h${r1(len * 0.18)}v1.6h-${r1(len * 0.18)}Z`, 'f']);
   return { paths: out, w: len + 3 };
 }
@@ -179,14 +191,199 @@ function heliShape(p) {
   out.push(['M48 24Q70 18 84 26Q92 30 86 36H50Q44 36 44 31Q44 26 48 24Z', 'f']);
   out.push(['M48 27L12 25V28.5L48 33Z', 'f']); out.push(['M12 25L8 15H12L17 26Z', 'f']);
   out.push(['M63 18H68V23H63Z', 'f']); out.push(['M16 15.5H114V17.8H16Z', 'f']);
+  if (p.tandem) { out.length = 0; out.push(['M10 22Q10 18 16 18H84Q94 18 96 26Q96 36 88 36H16Q10 36 10 30Z', 'f']); out.push(['M12 18L14 10H22L24 18ZM80 18V12H86V18Z', 'f']); out.push(['M0 9.5H44V11.5H0ZM56 9.5H104V11.5H56Z', 'f']); out.push(['M22 36V42H26V36ZM76 36V42H80V36Z', 'f']); return { paths: out, w: 104 }; }
   if (p.attack) { out.push(['M58 31H78V33.5H58Z', 'f']); out.push(['M84 34H98V35.6H84Z', 'f']); out.push(['M56 36H60V42H56ZM76 36H80V42H76Z', 'f']); }
   else out.push(['M50 41.5H88V43.5H50ZM56 36H58V41.5H56ZM78 36H80V41.5H78Z', 'f']);
   return { paths: out, w: 114 };
 }
+// 旋轉矩形：從 (x, y) 沿角度 ang（度，逆時針）延伸 len，厚度 th
+function rotRect(x, y, len, th, ang, back = 0) {
+  const a = ang * Math.PI / 180, c = Math.cos(a), s = -Math.sin(a), nx = -s * th / 2, ny = c * th / 2;
+  const x0 = x - c * back, y0 = y - s * back, x1 = x + c * len, y1 = y + s * len;
+  return `M${r1(x0 + nx)} ${r1(y0 + ny)}L${r1(x1 + nx)} ${r1(y1 + ny)}L${r1(x1 - nx)} ${r1(y1 - ny)}L${r1(x0 - nx)} ${r1(y0 - ny)}Z`;
+}
+const along = (x, y, len, ang) => { const a = ang * Math.PI / 180; return [x + Math.cos(a) * len, y - Math.sin(a) * len]; };
+const CIRC = (x, y, r) => `M${r1(x + r)} ${r1(y)}A${r} ${r} 0 1 0 ${r1(x - r)} ${r1(y)}A${r} ${r} 0 1 0 ${r1(x + r)} ${r1(y)}Z`;
+// 輕兵器（側面）：步槍、衝鋒槍、機槍、突擊步槍、無托步槍、狙擊槍、火焰噴射器、榴彈發射器
+function gunShape(p) {
+  const L = p.L || 104, out = [], kind = p.kind || 'rifle';
+  if (kind === 'flame') {
+    out.push([`M2 18Q2 12 8 12H16Q22 12 22 18V40Q22 46 16 46H8Q2 46 2 40Z`, 'f']);
+    out.push([`M22 20Q34 16 40 26`, 's']);
+    out.push([`M36 24H${L - 8}V29H36Z`, 'f']); out.push([`M${L - 8} 23H${L}V30H${L - 8}Z`, 'f']);
+    out.push([`M46 29H51L49 38H44Z`, 'f']); out.push([`M70 29H75L73 37H68Z`, 'f']);
+    return { paths: out, w: L };
+  }
+  const bp = !!p.bullpup, y0 = 23.5, y1 = 30;
+  const sL = p.stock === 'none' ? 0 : bp ? 0 : L * (p.sl || 0.27);
+  const rL = L * (p.rl || (kind === 'smg' ? 0.3 : bp ? 0.46 : 0.24)), rx0 = sL, rx1 = rx0 + rL;
+  const thick = kind === 'gl' ? 4 : 0;
+  // 槍托
+  if (!bp && p.stock !== 'none') {
+    if (p.stock === 'skel' || p.stock === 'fold') out.push([`M0 25H${r1(sL)}M0 25V35L${r1(sL)} 30`, 's']);
+    else if (p.stock === 'straight') out.push([`M0 24.5H${r1(sL)}V30L0 35Z`, 'f']);
+    else out.push([`M0 27L${r1(sL)} ${y0}V${y1}L${r1(sL * 0.6)} 31.5L0 37Z`, 'f']);
+  }
+  // 機匣
+  out.push([`M${r1(rx0)} ${y0 - thick / 2}H${r1(rx1)}V${y1 + thick / 2}H${r1(rx0)}Z`, 'f']);
+  if (bp) out.push([`M${r1(rx0)} ${y0 + 1}L${r1(rx0 - 2)} 37H${r1(rx0 + 6)}L${r1(rx0 + 8)} ${y1}Z`, 'f']);
+  // 握把
+  const gx = bp ? rx0 + rL * 0.62 : rx0 + (p.stock === 'wood' || !p.stock ? 3 : 4);
+  if (kind !== 'rifle' || bp || p.stock === 'straight' || p.stock === 'skel' || p.stock === 'fold' || p.stock === 'none') out.push([`M${r1(gx)} ${y1}H${r1(gx + 5)}L${r1(gx + 3)} 40H${r1(gx - 3)}Z`, 'f']);
+  else out.push([`M${r1(gx + 4)} ${y1}Q${r1(gx + 7)} 35 ${r1(gx + 11)} ${y1}`, 's']);
+  // 護木與槍管
+  const hg = p.hg ?? (kind === 'rifle' || kind === 'ar' ? 0.26 : kind === 'smg' ? 0.08 : 0.1);
+  const hx1 = rx1 + L * hg;
+  if (hg > 0) out.push([`M${r1(rx1)} 24.5H${r1(hx1)}V29H${r1(rx1)}Z`, 'f']);
+  const bt = kind === 'gl' ? 9 : kind === 'mg' ? 2.6 : 2;
+  out.push([`M${r1(rx1)} ${r1(27 - bt / 2)}H${L}V${r1(27 + bt / 2)}H${r1(rx1)}Z`, 'f']);
+  if (p.jacket) out.push([`M${r1(rx1)} 24H${r1(rx1 + L * 0.32)}V30H${r1(rx1)}Z` + [0.06, 0.13, 0.2, 0.27].map(f => CIRC(rx1 + L * f, 27, 1.1)).join(''), 'e']);
+  out.push([`M${L - 3} 22H${L - 1.5}V25H${L - 3}Z`, 'f']);
+  if (p.muzzle) out.push([`M${L - 5} 24.5H${L}V29.5H${L - 5}Z`, 'f']);
+  // 彈匣
+  const mx = bp ? rx0 + rL * 0.25 : rx0 + rL * (p.mpos || 0.45);
+  const mag = p.mag || (kind === 'rifle' ? 'int' : 'box');
+  if (mag === 'int') out.push([`M${r1(mx)} ${y1}h6v3h-6Z`, 'f']);
+  else if (mag === 'box') out.push([`M${r1(mx)} ${y1}h6.5v${kind === 'mg' ? 7 : 10}h-6.5Z`, 'f']);
+  else if (mag === 'long') out.push([`M${r1(mx)} ${y1}h6v15h-6Z`, 'f']);
+  else if (mag === 'curve') out.push([`M${r1(mx)} ${y1}h7l2 6q1 5 4.5 8h-7.5q-3-3-4-8Z`, 'f']);
+  else if (mag === 'drum') out.push([CIRC(mx + 4, 37, 7), 'f']);
+  else if (mag === 'top') out.push([`M${r1(mx)} ${y0}l2-10h6l-1 10Z`, 'f']);
+  else if (mag === 'pan') out.push([`M${r1(mx - 8)} ${y0 - 1}h22v-4h-22Z`, 'f']);
+  else if (mag === 'belt') out.push([`M${r1(mx - 2)} ${y1}h12v9h-12Z`, 'f']);
+  // 兩腳架、瞄準鏡、提把
+  if (p.bip) { const bx = L * (p.bpos || 0.78); out.push([`M${r1(bx)} 28L${r1(bx - 5)} 42M${r1(bx)} 28L${r1(bx + 5)} 42`, 's']); }
+  if (p.tripod) out.push([`M${r1(rx0 + rL * 0.5)} 30L${r1(rx0 - 6)} 48M${r1(rx0 + rL * 0.5)} 30L${r1(rx1 + 10)} 48M${r1(rx0 + rL * 0.5)} 30V48`, 's']);
+  if (p.scope) out.push([`M${r1(rx0 + 1)} 17H${r1(rx1 + 2)}V21H${r1(rx0 + 1)}ZM${r1(rx0 + 4)} 21h2v3h-2ZM${r1(rx1 - 4)} 21h2v3h-2Z`, 'f']);
+  if (p.handle) out.push([`M${r1(rx0 + 2)} ${y0}V18H${r1(rx1 - 3)}V${y0}H${r1(rx1 - 5)}V20H${r1(rx0 + 4)}V${y0}Z`, 'f']);
+  if (p.ugl) out.push([`M${r1(rx1)} 30H${r1(rx1 + L * 0.22)}V35H${r1(rx1)}Z`, 'f']);
+  return { paths: out, w: L };
+}
+// 單兵反坦克與防空武器
+function launcherShape(p) {
+  const out = [], t = p.t || 'tube', L = p.L || 104;
+  if (t === 'pf') {
+    out.push([`M0 25.5H70V28.5H0Z`, 'f']);
+    out.push([`M68 27Q70 18 84 18Q100 18 108 27Q100 36 84 36Q70 36 68 27Z`, 'f']);
+    out.push([`M40 22H44V25.5H40Z`, 'f']);
+    return { paths: out, w: 108 };
+  }
+  if (t === 'atgm') {
+    out.push([`M48 32L34 52M48 32L62 52M48 32V52`, 's']);
+    out.push([`M14 22H${L}V30H14Z`, 'f']); out.push([`M${L} 23L${L + 6} 26L${L} 29Z`, 'f']);
+    out.push([`M30 30H46V38H30Z`, 'f']); out.push([`M30 16H40V22H30Z`, 'f']);
+    return { paths: out, w: L + 6 };
+  }
+  if (t === 'recoil') {
+    out.push([`M48 32L30 52M48 32L66 52M48 32V52`, 's']);
+    out.push([`M0 23H${L}V29H0Z`, 'f']); out.push([`M8 19H26V33H8Z`, 'f']); out.push([`M40 16H62V21H40Z`, 'f']);
+    return { paths: out, w: L };
+  }
+  // 火箭筒、RPG、無後座力砲、肩射飛彈
+  const th = t === 'rpg' ? 4.4 : t === 'manpads' ? 5 : 6;
+  out.push([`M4 ${r1(27 - th / 2)}H${L - (t === 'rpg' ? 22 : 0)}V${r1(27 + th / 2)}H4Z`, 'f']);
+  if (t === 'rpg') { out.push([`M0 22L8 25V29L0 32Z`, 'f']); out.push([`M${L - 24} 27Q${L - 22} 19 ${L - 12} 19Q${L - 2} 20 ${L + 4} 27Q${L - 2} 34 ${L - 12} 35Q${L - 22} 35 ${L - 24} 27Z`, 'f']); }
+  else if (t === 'tube') out.push([`M0 21L6 23.5V30.5L0 33Z`, 'f']);
+  out.push([`M38 30H43L41 39H36Z`, 'f']); out.push([`M54 30H59L57 38H52Z`, 'f']);
+  if (t === 'manpads') { out.push([`M60 24.5V17H74V24.5`, 's']); out.push([`M22 29.5H34V37H22Z`, 'f']); }
+  else out.push([`M46 19H54V24H46Z`, 'f']);
+  if (t === 'tube') out.push([`M18 30H28V34H18Z`, 'f']);
+  return { paths: out, w: L + (t === 'rpg' ? 4 : 0) };
+}
+// 牽引火砲、山砲、反坦克砲、高射砲、迫擊砲、多管火箭砲
+function artyShape(p) {
+  const out = [], t = p.t || 'how';
+  if (t === 'mortar') {
+    out.push([`M24 52H52V55H24Z`, 'f']);
+    const ang = 62, len = p.bl || 50, th = p.bt || 5;
+    out.push([rotRect(38, 52, len, th, ang), 'f']);
+    const [mx, my] = along(38, 52, len * 0.62, ang);
+    out.push([`M${r1(mx)} ${r1(my)}L${r1(mx + 14)} 55M${r1(mx)} ${r1(my)}L${r1(mx + 4)} 55`, 's']);
+    return { paths: out, w: 80 };
+  }
+  if (t === 'aa') {
+    out.push([`M14 50H92V53H14Z`, 'f']); out.push([`M8 54L14 50H18L12 54ZM98 54L92 50H88L94 54Z`, 'f']);
+    out.push([`M44 38H62V50H44Z`, 'f']);
+    out.push([rotRect(54, 36, p.bl || 58, p.bt || 4, p.elev || 48, 10), 'f']);
+    out.push([`M40 30H58V40H40Z`, 'f']);
+    if (p.shield) out.push([`M36 24H44V42H36Z`, 'f']);
+    return { paths: out, w: 100 };
+  }
+  // 車輪與架尾
+  const wr = p.wr || (t === 'mtn' ? 6 : t === 'at' ? 7 : 9), wx = 54, wy = 55 - wr;
+  out.push([CIRC(wx, wy, wr) + CIRC(wx, wy, wr * 0.35), 'e']);
+  out.push([`M${wx} ${r1(wy - 3)}L4 ${r1(wy + wr - 4)}L4 ${r1(wy + wr - 1)}L${wx} ${r1(wy + 2)}Z`, 'f']);
+  if (t === 'neb') {
+    for (const dy of [-6, 0, 6]) out.push([rotRect(wx - 2, wy - 12 + dy, 44, 6, 22, 8), 'f']);
+    return { paths: out, w: 100 };
+  }
+  const ang = p.elev ?? (t === 'how' ? 22 : t === 'mtn' ? 18 : 6), len = p.bl || (t === 'how' ? 52 : t === 'at' ? 60 : t === 'mtn' ? 40 : 62), th = p.bt || (t === 'how' ? 5.5 : t === 'at' ? 3.2 : 4);
+  const py = wy - wr * 0.45;
+  out.push([rotRect(wx, py, len, th, ang, 14), 'f']);
+  out.push([rotRect(wx, py, 14, th + 4, ang, 12), 'f']);
+  if (p.brake) { const [bx, by] = along(wx, py, len - 4, ang); out.push([rotRect(bx, by, 5, th + 3, ang), 'f']); }
+  if (p.shield !== 0 && t !== 'mtn') out.push([`M${wx - 4} ${r1(py - 16)}H${wx + 4}V${r1(wy + 2)}H${wx - 4}Z`, 'f']);
+  return { paths: out, w: Math.max(100, wx + Math.cos(ang * Math.PI / 180) * len + 4) };
+}
+// 卡車、火箭發射車、飛彈發射車、輪式裝甲車
+function truckShape(p) {
+  const out = [], t = p.t || 'cargo', ax = p.ax || 3;
+  const L = p.L || 100;
+  const xs = ax === 2 ? [18, L - 18] : ax === 4 ? [14, 30, L - 34, L - 16] : [16, 34, L - 18];
+  if (p.tracks) { let d = TRACK(2, L - 2, 42, 54); for (let i = 0; i < 6; i++) d += WHEELS([r1(9 + i * (L - 18) / 5)], 48, 3.4); out.push([d, 'e']); }
+  else out.push([xs.map(x => CIRC(x, 47, 6.5) + CIRC(x, 47, 2.4)).join(''), 'e']);
+  if (t === 'ac') {
+    out.push([`M4 44L2 32L10 26H${L - 18}L${L} 34L${L - 4} 44Z`, 'f']);
+    if (p.turret !== 0) { out.push([`M${L * 0.36} 26L${L * 0.38} 18H${L * 0.58}L${L * 0.62} 26Z`, 'f']); out.push([`M${L * 0.58} 20.5H${L * 0.58 + (p.gun || 26)}V22.5H${L * 0.58}Z`, 'f']); }
+    return { paths: out, w: L + 2 + (p.gun || 0) * 0.2 };
+  }
+  out.push([`M4 37H${L}V42H4Z`, 'f']);
+  if (!p.tracks) out.push([`M${L - 22} 37V24H${L - 8}L${L} 31V37Z`, 'f']);
+  const bed = p.tracks ? L - 4 : L - 24;
+  if (t === 'cargo') out.push([`M6 37V28Q6 23 11 23H${bed - 4}Q${bed} 23 ${bed} 28V37Z`, 'f']);
+  if (t === 'rails') for (const k of [0, 1, 2]) out.push([rotRect(10, 33 - k * 3.6, bed - 6, 2.2, 14), 'f']);
+  if (t === 'tubes') out.push([rotRect(8, 30, bed - 14, 14, 12), 'f']);
+  if (t === 'tel') { out.push([rotRect(4, 29, bed + 4, 7, 9), 'f']); const [nx, ny] = along(4, 29, bed + 4, 9); out.push([`M${r1(nx)} ${r1(ny - 3.5)}L${r1(nx + 10)} ${r1(ny - 1.5)}L${r1(nx)} ${r1(ny + 3.5)}Z`, 'f']); }
+  if (t === 'sam') { out.push([`M${bed * 0.45} 37V30H${bed * 0.6}V37Z`, 'f']); for (const dy of [0, 6]) out.push([rotRect(bed * 0.25, 30 - dy, bed * 0.72, 3.6, 28), 'f']); }
+  if (t === 'radar') { out.push([`M${bed * 0.5} 37V20`, 's']); out.push([`M${bed * 0.25} 16Q${bed * 0.5} 26 ${bed * 0.75} 16Z`, 'f']); }
+  if (t === 'gun') { out.push([`M${bed * 0.2} 37V24H${bed * 0.8}V37Z`, 'f']); out.push([rotRect(bed * 0.55, 26, 46, 3, 40), 'f']); out.push([rotRect(bed * 0.45, 28, 46, 3, 40), 'f']); }
+  return { paths: out, w: L + 2 };
+}
+// 飛彈與火箭（側面）
+function missileShape(p) {
+  const out = [], t = p.t || 'v2', L = p.L || 104, th = p.th || (t === 'v2' ? 12 : t === 'icbm' ? 10 : t === 'aam' ? 4 : 7), c = 28;
+  const y0 = c - th / 2, y1 = c + th / 2;
+  out.push([`M4 ${r1(y0)}H${r1(L - th * 1.6)}Q${L} ${c} ${r1(L - th * 1.6)} ${r1(y1)}H4Z`, 'f']);
+  if (t === 'icbm') out.push([`M${r1(L * 0.36)} ${r1(y0 - 0.2)}h1v${th + 0.4}h-1ZM${r1(L * 0.66)} ${r1(y0 - 0.2)}h1v${th + 0.4}h-1Z`, 'f']);
+  if (t !== 'icbm') { const f = t === 'v2' ? 11 : t === 'aam' ? 6 : 7; out.push([`M4 ${r1(y0)}L0 ${r1(y0 - f)}H8L${r1(4 + f * 1.4)} ${r1(y0)}ZM4 ${r1(y1)}L0 ${r1(y1 + f)}H8L${r1(4 + f * 1.4)} ${r1(y1)}Z`, 'f']); }
+  if (t === 'v1') { out.push([`M0 ${r1(y0 - 9)}H${r1(L * 0.36)}V${r1(y0 - 4)}H0Z`, 'f']); out.push([`M${r1(L * 0.3)} ${r1(y0 - 4)}h3v4h-3Z`, 'f']); out.push([`M${r1(L * 0.48)} ${c - 1}H${r1(L * 0.64)}V${c + 1.5}H${r1(L * 0.48)}Z`, 'f']); }
+  if (t === 'cruise') out.push([`M${r1(L * 0.46)} ${c}L${r1(L * 0.52)} ${c + 10}H${r1(L * 0.6)}L${r1(L * 0.58)} ${c}Z`, 'f']);
+  if (t === 'aam' || t === 'ssm') out.push([`M${r1(L * 0.72)} ${r1(y0)}L${r1(L * 0.76)} ${r1(y0 - 5)}H${r1(L * 0.8)}L${r1(L * 0.8)} ${r1(y0)}ZM${r1(L * 0.72)} ${r1(y1)}L${r1(L * 0.76)} ${r1(y1 + 5)}H${r1(L * 0.8)}L${r1(L * 0.8)} ${r1(y1)}Z`, 'f']);
+  return { paths: out, w: L + 1 };
+}
+// 小型艦艇：魚雷快艇、飛彈快艇、登陸艇、戰車登陸艦
+function boatShape(p) {
+  const out = [], t = p.t || 'pt', L = p.len || 80;
+  if (t === 'lst') {
+    out.push([`M0 33H${L - 6}L${L} 29V43L${L - 4} 45H4Z`, 'f']);
+    out.push([`M4 33V20H22V33Z`, 'f']); out.push([`M10 20V12H14V20Z`, 'f']);
+    return { paths: out, w: L };
+  }
+  if (t === 'lcvp') {
+    out.push([`M6 34H${L - 4}L${L} 28V44H10Z`, 'f']); out.push([`M10 34V26H22V34Z`, 'f']);
+    return { paths: out, w: L };
+  }
+  out.push([`M2 36H${L - 10}L${L} 30L${L - 6} 43H8Z`, 'f']);
+  out.push([`M${r1(L * 0.36)} 36V28H${r1(L * 0.52)}V36Z`, 'f']); out.push([`M${r1(L * 0.44)} 28V20H${r1(L * 0.46)}V28Z`, 'f']);
+  if (t === 'msl') out.push([rotRect(L * 0.08, 35, L * 0.24, 5, 10) + rotRect(L * 0.62, 35, L * 0.22, 5, 10), 'f']);
+  else out.push([`M${r1(L * 0.1)} 33H${r1(L * 0.3)}V36H${r1(L * 0.1)}ZM${r1(L * 0.62)} 33H${r1(L * 0.84)}V36H${r1(L * 0.62)}Z`, 'f']);
+  return { paths: out, w: L };
+}
 export function modelShape(spec) {
   if (!spec) return null;
   const k = spec.k;
-  return k === 'tank' ? tankShape(spec) : k === 'plane' ? planeShape(spec) : k === 'ship' ? shipShape(spec) : k === 'heli' ? heliShape(spec) : k === 'apc' ? apcShape(spec) : null;
+  const f = { tank: tankShape, plane: planeShape, ship: shipShape, heli: heliShape, apc: apcShape, gun: gunShape, launcher: launcherShape, arty: artyShape, truck: truckShape, msl: missileShape, boat: boatShape }[k];
+  return f ? f(spec) : null;
 }
 // 產生剪影 SVG（自動置中縮放到 120×60）
 export function modelSVG(spec, cls = 'mdl') {
