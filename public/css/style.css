@@ -238,7 +238,7 @@ button.big { font-size: 17px; padding: 12px; }
 #tree .nowline { position: absolute; top: 0; bottom: 0; width: 2px; background: linear-gradient(#d9ae55, rgba(217,174,85,.1)); }
 #tree .nowline span { position: absolute; top: 24px; left: 4px; font-size: 11px; color: var(--gold2); white-space: nowrap; }
 #tree .lane { position: absolute; left: 8px; width: 100px; height: 58px; display: flex; align-items: center; font-size: 12px; color: #8d98a4; border-left: 3px solid #3a4553; padding-left: 6px; }
-.tn { position: absolute; width: 150px; height: 58px; border-radius: 8px; border: 1px solid #3a434f; background: linear-gradient(#1b222c, #141920); padding: 4px 7px; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.4); overflow: hidden; transition: transform .1s, box-shadow .1s; }
+.tn { position: absolute; width: 156px; height: 66px; border-radius: 8px; border: 1px solid #3a434f; background: linear-gradient(#1b222c, #141920); padding: 4px 7px; line-height: 1.32; cursor: pointer; box-shadow: 0 2px 6px rgba(0,0,0,.4); overflow: hidden; transition: transform .1s, box-shadow .1s; }
 .tn:hover { transform: translateY(-1px); box-shadow: 0 4px 14px rgba(0,0,0,.6); z-index: 2; }
 .tn-h { display: flex; gap: 4px; align-items: center; }
 .tn-y { font-size: 11px; color: #8d98a4; }
@@ -303,3 +303,85 @@ img.flg.big { width: 66px; height: 44px; border-radius: 4px; box-shadow: 0 3px 1
 .evopts { display: flex; flex-direction: column; gap: 7px; padding: 4px 16px 10px !important; }
 .evopts .btn { text-align: left; }
 .evhint { font-size: 12px; color: var(--dim); padding: 0 16px 14px; }
+
+/* ---------------- 介面圖示 */
+svg.ui-svg { width: 18px; height: 18px; vertical-align: -4px; color: inherit; }
+#hud .stat i { display: inline-flex; align-items: center; font-style: normal; color: #e8c477; }
+#hud #h-manb i { color: #9fd0a8; } #hud #h-ppb i { color: #f0d36a; } #hud #h-nuke i { color: #f08a5d; } #hud #h-sur i { color: #ddd; }
+#tabs button i svg.ui-svg { width: 24px; height: 24px; color: #e6c27a; }
+#tabs button.on i svg.ui-svg { color: #ffe39a; }
+
+/* ---------------- 生產面板的型號 */
+.unitbtns .btn.pbtn { position: relative; overflow: hidden; }
+.unitbtns .btn .pmdl { position: absolute; right: -6px; top: 2px; width: 70px; height: 35px; opacity: .22; pointer-events: none; }
+.unitbtns .btn .pmdl svg.mdl { width: 100%; height: 100%; color: #f3e6c4; }
+small.mdlname { color: #e6c98a !important; }
+.line small.mdlname { font-size: 11px; }
+
+/* ---------------- 科技節點型號與詳細說明 */
+.tn .tn-pic { position: absolute; right: 3px; top: 3px; width: 58px; height: 29px; opacity: .38; pointer-events: none; }
+.tn .tn-pic svg.mdl { width: 100%; height: 100%; color: #e9dcc0; }
+.tn.done .tn-pic { opacity: .45; }
+.tn-m { font-size: 11px; color: #e6c98a; white-space: nowrap; overflow: hidden; text-overflow: ellipsis; position: relative; }
+.fn.econ { border-left: 3px solid #c9a94a; }
+.fn-i svg.ui-svg { width: 15px; height: 15px; color: #e6c27a; }
+.fn.done .fn-i svg.ui-svg { color: #ffe39a; }
+.lg.econ { border-color: #c9a94a; color: #f0d88a; background: #2b2614; }
+#tdetail { position: fixed; z-index: 60; background: linear-gradient(#1f2732, #161c24); border: 1px solid #6a5a34; border-radius: 12px; box-shadow: 0 14px 40px rgba(0,0,0,.7); color: var(--text); padding: 12px 14px; font-size: 13px; line-height: 1.55; }
+#tdetail.pop { width: 360px; max-height: calc(100vh - 16px); overflow: hidden; pointer-events: none; }
+#tdetail.sheet { left: 8px !important; right: 8px; bottom: 8px; top: auto !important; max-height: 72vh; overflow-y: auto; }
+#tdetail.hidden { display: none; }
+#tdetail .dt-h small { color: #c9b27a; display: flex; align-items: center; gap: 4px; }
+#tdetail .dt-h small svg.ui-svg { width: 14px; height: 14px; }
+#tdetail h4 { margin: 2px 0 4px; font-size: 17px; color: var(--gold2); }
+#tdetail .dt-st { font-size: 12px; padding: 2px 8px; border-radius: 6px; display: inline-block; background: #22303f; color: #cfe0f0; }
+#tdetail .dt-st.ok { background: #3b321c; color: #f0d58e; } #tdetail .dt-st.no { background: #2a1a1a; color: #e8a0a0; }
+#tdetail .dt-badges span { font-size: 11px; margin-right: 4px; padding: 1px 6px; border-radius: 4px; border: 1px solid; }
+.b-hist { color: #e6c27a; border-color: #8a7038; } .b-alt { color: #a9c8f0; border-color: #4a6a90; } .b-ex { color: #f09a8a; border-color: #8a3a35; }
+#tdetail .dt-pic { background: radial-gradient(ellipse at center, #e9e1cc 0%, #c9bfa6 100%); border-radius: 8px; margin: 8px 0 4px; height: 96px; display: flex; align-items: center; justify-content: center; }
+#tdetail .dt-pic svg.mdl { width: 220px; height: 92px; color: #2b3442; }
+#tdetail .dt-model { font-size: 13px; display: flex; align-items: center; gap: 6px; flex-wrap: wrap; }
+#tdetail .dt-model small { color: var(--dim); }
+img.dflag { width: 18px; height: 12px; border: 1px solid rgba(0,0,0,.5); border-radius: 2px; object-fit: cover; vertical-align: -2px; margin-right: 3px; }
+#tdetail .dt-others { display: grid; grid-template-columns: repeat(4, 1fr); gap: 4px; }
+#tdetail .dt-o { background: rgba(233,225,204,.08); border-radius: 6px; padding: 2px; text-align: center; font-size: 10.5px; line-height: 1.25; }
+#tdetail .dt-o svg.mdl { width: 100%; height: 30px; color: #d9ccaa; }
+#tdetail .dt-wiki { display: inline-block; margin-top: 6px; font-size: 12px; color: #8fc3f0; }
+#tdetail.pop .dt-wiki { display: none; }
+#tdetail .dt-desc { margin: 8px 0 4px; color: #d8d2c0; }
+#tdetail .dt-sec { margin: 8px 0 4px; font-size: 12px; color: var(--gold2); border-bottom: 1px solid #3a3322; padding-bottom: 2px; }
+#tdetail .dt-req { display: flex; flex-wrap: wrap; gap: 4px; }
+#tdetail .dt-req span { font-size: 12px; padding: 1px 6px; border-radius: 4px; background: #1a212b; }
+#tdetail .dt-req .ok { color: #9fdc9f; } #tdetail .dt-req .no { color: #e8a0a0; } #tdetail .dt-req .any { background: none; color: var(--dim); }
+#tdetail .dt-note { margin-top: 6px; font-size: 12px; color: var(--dim); }
+#tdetail .dt-act { display: flex; gap: 8px; margin-top: 10px; }
+#tdetail .dt-act .btn { flex: 1; }
+.eflist { display: flex; flex-direction: column; gap: 4px; }
+.eflist .ef { display: flex; gap: 8px; align-items: flex-start; background: rgba(255,255,255,.04); border-radius: 6px; padding: 4px 6px; }
+.eflist .ef b { font-weight: 600; font-size: 13px; display: block; }
+.eflist .ef small { color: #b8b1a0; font-size: 12px; display: block; }
+.eflist .ef.good b { color: #a6e3a6; } .eflist .ef.bad b { color: #f0a0a0; }
+.eflist svg.ef-ic { flex: none; width: 20px; height: 20px; margin-top: 1px; color: #e6c27a; }
+.eflist svg.gl.ef-ic { width: 24px; height: 16px; margin-top: 3px; }
+.eflist.compact .ef { padding: 2px 6px; }
+.eflist.compact .ef b { font-size: 12px; }
+
+/* ---------------- 事件選項的預估效果與選擇結果 */
+.evopts .evopt { display: flex; flex-direction: column; gap: 4px; padding: 6px; border-radius: 8px; background: rgba(255,255,255,.03); border: 1px solid rgba(255,255,255,.05); }
+.evopts .evopt > .btn { width: 100%; text-align: left; }
+.evprev { display: flex; flex-wrap: wrap; gap: 4px; align-items: center; padding: 0 2px; }
+.evprev > small { color: var(--dim); font-size: 11px; margin-right: 2px; }
+.chip { display: inline-flex; align-items: center; gap: 4px; font-size: 12px; line-height: 1.3; padding: 2px 7px 2px 4px; border-radius: 999px; background: #243040; color: #dfe8f2; border: 1px solid #34465c; }
+.chip.good { background: #1d3524; color: #b4f0b4; border-color: #2f6a3c; }
+.chip.bad { background: #3a1e1e; color: #f6b0a8; border-color: #7a3430; }
+.chip.dim { background: transparent; border-style: dashed; color: var(--dim); padding-left: 7px; }
+.chip svg.ef-ic { width: 15px; height: 15px; color: currentColor; margin: 0; flex: none; }
+.chip svg.gl.ef-ic { width: 21px; height: 14px; margin: 0; }
+#evresult { position: absolute; left: 50%; top: 62px; transform: translate(-50%, -12px); width: min(520px, calc(100% - 20px)); z-index: 45; background: linear-gradient(#26301f, #1a2117); border: 1px solid #8a7a3a; border-radius: 12px; padding: 10px 12px; box-shadow: 0 12px 36px rgba(0,0,0,.6); opacity: 0; pointer-events: none; transition: opacity .25s, transform .25s; }
+#evresult.on { opacity: 1; pointer-events: auto; transform: translate(-50%, 0); }
+#evresult .er-h { display: flex; justify-content: space-between; align-items: center; color: var(--gold2); }
+#evresult .er-t { font-size: 13px; margin: 4px 0 6px; color: #d8d2c0; }
+#evresult .er-t span { color: #fff; }
+#evresult .er-l { display: flex; flex-wrap: wrap; gap: 5px; }
+#evresult .er-a { display: flex; gap: 8px; margin-top: 8px; }
+@media (max-width: 700px) { #evresult { top: 52px; } }

@@ -3,15 +3,17 @@ import { WORLD, regionName } from './core/world.js';
 import { createGame, SCENARIOS, SCEN, serialize, deserialize, scores } from './core/game.js';
 import { UNITS, UNIT_ORDER, TERRAIN, LAWS, TECHS, TECH_MAP, TECH_CATS, BUILD, DIFFICULTY } from './data/rules.js';
 import { initTrees, openTree, closeTree, refreshTree, treeOpen, techEffText } from './ui/trees.js';
-import { glyphSVG } from './ui/icons.js';
+import { glyphSVG, uiIcon, modelSVG } from './ui/icons.js';
+import { modelFor, unitModel, MODELS } from './data/models.js';
 import { flagURL } from './ui/flags.js';
 const unitGlyph = (t) => glyphSVG(t);
 import { IDEOLOGIES } from './data/countries.js';
 import {
   atWar, atWarAny, enemySet, friendly, allied, alive, liveTags, focusList, focusAvailable, lawAllowed, canResearch,
-  researchCost, researchSpeed, focusTrees, focusDays, unitBonus, canBuild, itemCost, isLandUnit, isAir, isNaval, cname, rname, regionIndCap,
+  researchCost, researchSpeed, focusTrees, focusDays, unitBonus, canBuild, itemCost, hasTech, isLandUnit, isAir, isNaval, cname, rname, regionIndCap,
 } from './core/engine.js';
-import { warCost, canDeclare } from './core/commands.js';
+import { warCost, canDeclare, applyCommand } from './core/commands.js';
+import { stateSig, diffSig, iconHTML } from './ui/describe.js';
 import { fmtDate, yearOf, fmtMan, dayToDate } from './core/util.js';
 import { MapView } from './ui/maprender.js';
 import { LocalGame, RemoteGame, SPEEDS, hostWS, joinWS, hostP2P, joinP2P, wsUrlDefault } from './net/net.js';
@@ -390,11 +392,11 @@ let hudBuilt = null;
 function buildHUD() {
   const hud = $('#hud');
   hud.innerHTML = `<div class="flag" data-hudtab="politics"><img class="hflag" id="h-sw" alt=""><b id="h-name"></b></div>
-    <div class="stat" id="h-ic" title="軍工產能（扣除部隊維持費後可用 / 總產能）"><i>🏭</i><span id="h-icn"></span><small id="h-icg"></small></div>
-    <div class="stat" id="h-manb" title="可用人力"><i>👥</i><span id="h-man"></span></div>
-    <div class="stat" id="h-ppb" title="政治點數：用於外交與法律"><i>⭐</i><span id="h-pp"></span></div>
-    <div class="stat" id="h-nuke" title="核子武器"><i>☢️</i><span id="h-nk"></span></div>
-    <div class="stat" id="h-sur" title="投降進度：本國勝利點被佔領的比例，超過門檻將投降"><i>🏳️</i><span id="h-surv"></span></div>
+    <div class="stat" id="h-ic" title="軍工產能（扣除部隊維持費後可用 / 總產能）"><i>${uiIcon('ic')}</i><span id="h-icn"></span><small id="h-icg"></small></div>
+    <div class="stat" id="h-manb" title="可用人力"><i>${uiIcon('man')}</i><span id="h-man"></span></div>
+    <div class="stat" id="h-ppb" title="政治點數：用於外交與法律"><i>${uiIcon('pp')}</i><span id="h-pp"></span></div>
+    <div class="stat" id="h-nuke" title="核子武器"><i>${uiIcon('nuke')}</i><span id="h-nk"></span></div>
+    <div class="stat" id="h-sur" title="投降進度：本國勝利點被佔領的比例，超過門檻將投降"><i>${uiIcon('flag')}</i><span id="h-surv"></span></div>
     <div class="spacer"></div><div class="date" id="h-date"></div>
     <div class="speeds"><button class="pause" data-speed="0" title="暫停（空白鍵）">⏸</button>${[1, 2, 3, 4, 5].map(i => `<button data-speed="${i}" title="速度 ${i}：每秒 ${SPEEDS[i]} 天">${'▶'.repeat(Math.min(3, Math.ceil(i / 2)))}</button>`).join('')}</div>
     <div class="spacer"></div>
@@ -455,6 +457,8 @@ function renderPanel() {
   body.scrollTop = scroll;
   if (focusEl && document.getElementById(focusEl)) { const el = document.getElementById(focusEl); el.focus(); if (el.setSelectionRange) el.setSelectionRange(el.value.length, el.value.length); }
 }
+// 分頁按鈕改用統一風格的圖示
+for (const b of document.querySelectorAll('#tabs button')) { const i = b.querySelector('i'); if (i) i.innerHTML = uiIcon({ politics: 'politics', research: 'research', production: 'production', diplomacy: 'diplomacy', army: 'army', news: 'news' }[b.dataset.tab]); }
 initTrees({ S: () => S, me: () => me, cmd: (c) => cmd(c), toast: (t, k) => toast(t, k), esc: (x) => esc(x), effText: (e) => effText(e) });
 function cmd(c, okMsg) {
   if (!G) return Promise.resolve(null);
@@ -480,6 +484,10 @@ function effText(e) {
   if (e.nukes) out.push(`核彈 +${e.nukes}`);
   if (e.nukeSpeed) out.push(`核子研究 +${Math.round(e.nukeSpeed * 100)}%`);
   if (e.fort || e.fortAt) out.push('邊境要塞');
+  if (e.icp) out.push(`軍工產能 +${Math.round(e.icp * 100)}%`);
+  if (e.fcost) out.push(`工廠成本 -${Math.round(e.fcost * 100)}%`);
+  if (e.upk) out.push(`部隊維持費 -${Math.round(e.upk * 100)}%`);
+  if (e.escort) out.push(`海運損失 -${Math.round(e.escort * 100)}%`);
   if (e.coastFort) out.push('沿海要塞');
   if (e.units) out.push(Object.entries(e.units).map(([t, n]) => `${UNITS[t] ? UNITS[t].name : t}×${n}`).join('、'));
   if (e.techs) out.push('獲得科技：' + e.techs.map(id => TECH_MAP[id] ? TECH_MAP[id].name : id).join('、'));
@@ -564,6 +572,9 @@ function panelResearch() {
 // ---------------- 生產
 const ITEM_GROUPS = [['陸軍', ['inf', 'mar', 'mec', 'ltk', 'arm', 'htk', 'mbt']], ['空軍', ['ftr', 'jet', 'cas', 'bmb', 'str', 'nvb', 'hel']], ['海軍', ['flt', 'car', 'sub']], ['建設', ['factory', 'nuke']]];
 function itemName(t) { return UNITS[t] ? UNITS[t].name : BUILD[t].name; }
+// 本國某兵種目前的歷史型號
+function myModel(t, tag = me) { return S && tag && S.C[tag] ? unitModel(S, tag, t, (id) => hasTech(S.C[tag], id)) : null; }
+function modelLabel(m, tag = me) { return m ? `${esc(m.name)}${m.from !== tag ? `（${nameOf(m.from)}型）` : ''}` : ''; }
 function panelProduction() {
   const C = S.C[me];
   let h = `<div class="sec"><h4>產能 <small>每日</small></h4><div class="kv">
@@ -578,7 +589,8 @@ function panelProduction() {
   C.prod.forEach((l, i) => {
     const cost = itemCost(l.type, C);
     const days = (C.icNet || 0) > 0 ? Math.ceil((cost - l.prog) / ((C.icNet || 1) / C.prod.length)) : '∞';
-    h += `<div class="line"><div class="nm"><b>${UNITS[l.type] ? unitGlyph(l.type) + ' ' : ''}${itemName(l.type)}</b> <small style="color:var(--dim)">${l.n < 0 ? '持續生產' : '剩餘 ' + l.n}${l.wait ? '・人力不足' : ''}${l.tgt >= 0 ? '・' + regName(l.tgt) : ''}</small><div class="pbar"><div style="width:${Math.min(100, 100 * l.prog / cost)}%"></div></div></div>
+    const lm = UNITS[l.type] ? myModel(l.type) : null;
+    h += `<div class="line"><div class="nm"><b>${UNITS[l.type] ? unitGlyph(l.type) + ' ' : l.type === 'factory' ? uiIcon('ic') + ' ' : ''}${itemName(l.type)}</b>${lm ? ` <small class="mdlname">${modelLabel(lm)}</small>` : ''} <small style="color:var(--dim)">${l.n < 0 ? '持續生產' : '剩餘 ' + l.n}${l.wait ? '・人力不足' : ''}${l.tgt >= 0 ? '・' + regName(l.tgt) : ''}</small><div class="pbar"><div style="width:${Math.min(100, 100 * l.prog / cost)}%"></div></div></div>
       <small style="color:var(--dim);width:42px;text-align:right">${days}天</small>
       <button class="btn tiny" data-pcount="${i}" data-v="${l.n < 0 ? 1 : l.n === 1 ? 5 : -1}" title="切換數量">${l.n < 0 ? '∞' : l.n}</button>
       ${i > 0 ? `<button class="btn tiny" data-pup="${i}" title="上移">↑</button>` : ''}<button class="btn tiny" data-prem="${i}">✕</button></div>`;
@@ -593,7 +605,8 @@ function panelProduction() {
       if (U && err && err.startsWith('需要研究') && !ui.showLocked) continue;
       const b = U ? unitBonus(S, me, t) : {};
       const info = U ? (U.domain === 'land' ? `攻${fx(U.att, b.att)} 防${fx(U.def, b.def)} 速${fx(U.speed, b.speed)}` : U.domain === 'air' ? `空${fx(U.air, b.air)}${U.bomb ? ' 地' + fx(U.bomb, b.bomb) : ''}${U.strat ? ' 戰略' + fx(U.strat, b.strat) : ''}${U.naval ? ' 艦' + fx(U.naval, b.naval) : ''}` : `攻${fx(U.att, b.att)} 防${fx(U.def, b.def)}`) + `・${U.cost}` : `${Math.round(itemCost(t, C))} 產能`;
-      h += `<button class="btn" ${err ? 'disabled' : ''} title="${esc((U ? U.desc : BUILD[t].desc) + (err ? '｜' + err : ''))}" data-padd="${t}"><span class="ui-ic">${U ? unitGlyph(t) : t === 'factory' ? '🏭' : '☢️'}</span>${itemName(t)}<small>${info}</small>${err && U ? `<small class="lock">🔒 ${esc(err.replace('需要研究', ''))}</small>` : ''}</button>`;
+      const md = U && !err ? myModel(t) : null;
+      h += `<button class="btn pbtn" ${err ? 'disabled' : ''} title="${esc((U ? U.desc : BUILD[t].desc) + (md ? '｜目前型號：' + md.name : '') + (err ? '｜' + err : ''))}" data-padd="${t}">${md ? `<span class="pmdl">${modelSVG(md.spec)}</span>` : ''}<span class="ui-ic">${U ? unitGlyph(t) : t === 'factory' ? uiIcon('ic') : uiIcon('nuke')}</span>${itemName(t)}${md ? `<small class="mdlname">${modelLabel(md)}</small>` : ''}<small>${info}</small>${err && U ? `<small class="lock">🔒 ${esc(err.replace('需要研究', ''))}</small>` : ''}</button>`;
     }
   }
   h += `<label class="toggle" style="margin-top:6px"><input type="checkbox" data-showlocked ${ui.showLocked ? 'checked' : ''}>顯示尚未解鎖的兵種</label>`;
@@ -906,6 +919,21 @@ function toast(text, kind = 'info') {
   setTimeout(() => el.remove(), kind === 'hist' || kind === 'major' ? 9000 : 5500);
 }
 const EV_KIND = { world: ['世界大事', '🌍'], choice: ['重大抉擇', '⚖️'], war: ['戰爭爆發', '⚔️'], crisis: ['邊境危機', '🔥'], diplo: ['外交', '🕊️'] };
+// 事件選項的預估效果：在複製的遊戲狀態上套用選項，比較前後差異
+function previewOption(p, i) {
+  try {
+    const T = structuredClone(S);
+    const r = applyCommand(T, me, { type: 'event', uid: p.uid, opt: i });
+    if (r && r.ok === false) return null;
+    return diffSig(T, me, stateSig(S, me), stateSig(T, me));
+  } catch (e) { return null; }
+}
+const OPT_HINT = { peace: '對方會考慮你的和平提議（可能拒絕）', peaceOffer: '對方會考慮你的和平提議（可能拒絕）', ulti: '對方會在幾天內回應你的最後通牒', ok: '維持現狀，沒有額外效果' };
+function chipsHTML(list, o) {
+  if (list === null) return `<span class="chip dim">（無法預估：結果取決於其他國家的反應）</span>`;
+  if (!list.length) return `<span class="chip dim">${esc((o && (OPT_HINT[o.k] || OPT_HINT[o.act])) || '沒有立即的數值變化，後續發展請留意新聞')}</span>`;
+  return list.map(x => `<span class="chip ${x.good === true ? 'good' : x.good === false ? 'bad' : ''}">${iconHTML(x.ic)}${esc(x.t)}</span>`).join('');
+}
 function checkPrompts() {
   if (modalOpen || !me || !S.pending) return;
   const list = S.pending[me];
@@ -913,13 +941,50 @@ function checkPrompts() {
   const p = list[0];
   const [kname, kic] = EV_KIND[p.kind] || ['歷史事件', '📜'];
   const flags = (p.tags || []).filter(t => S.C[t]).slice(0, 4).map(t => `<div class="evflag">${flagImg(t, 'big')}<small>${nameOf(t)}</small></div>`).join('');
+  const previews = p.opts.map((o, i) => previewOption(p, i));
   modal(`<div class="evcard ev-${p.kind || 'choice'}">
     <div class="evbanner"><span class="evkind">${kic} ${kname}</span>${flags ? `<div class="evflags">${flags}</div>` : ''}</div>
     <header><h3>${esc(p.title)}</h3><small>${fmtDate(p.day)}${list.length > 1 ? `・還有 ${list.length - 1} 則事件` : ''}</small></header>
     <div class="db evtext">${esc(p.text).replace(/\n/g, '<br>')}</div>
-    <div class="opts evopts">${p.opts.map((o, i) => `<button class="btn ${i === 0 ? 'gold' : ''}" data-popt="${i}">${esc(o.t)}</button>`).join('')}</div>
-    <div class="evhint">⏸ 遊戲已暫停，做出選擇後會自動繼續</div></div>`, false);
-  $$('[data-popt]').forEach(b => b.onclick = () => { closeModal(); cmd({ type: 'event', uid: p.uid, opt: Number(b.dataset.popt) }); });
+    <div class="opts evopts">${p.opts.map((o, i) => `<div class="evopt"><button class="btn ${i === 0 ? 'gold' : ''}" data-popt="${i}">${esc(o.t)}</button><div class="evprev"><small>預估效果：</small>${chipsHTML(previews[i], o)}</div></div>`).join('')}</div>
+    <div class="evhint">⏸ 遊戲已暫停，做出選擇後會自動繼續・選項下方的圖示是選擇後會立即發生的變化</div></div>`, false);
+  $$('[data-popt]').forEach(b => b.onclick = () => {
+    const i = Number(b.dataset.popt), before = stateSig(S, me), who = me;
+    closeModal();
+    cmd({ type: 'event', uid: p.uid, opt: i }).then((r) => {
+      if (r && r.ok === false) return;
+      // 連線模式要等主機送回新狀態
+      setTimeout(() => showEventResult(p, i, before, previews[i], who), G instanceof RemoteGame ? 900 : 0);
+    });
+  });
+}
+let resultTimer = 0;
+function showEventResult(p, i, before, prev, who) {
+  if (!S || who !== me || !S.C[me]) return;
+  const actual = diffSig(S, me, before, stateSig(S, me));
+  // 預估是在選擇當下的狀態上計算的，最準確；實際差異可能混入之後幾天的自然變化
+  const shown = prev || actual;
+  const ids = actual.newUnits || [];
+  const regions = [...stateSig(S, me).regions].filter(r => !before.regions.has(r));
+  const o = p.opts[i] || {};
+  const el = $('#evresult');
+  el.innerHTML = `<div class="er-h"><b>✔ 你的選擇</b><button class="btn tiny" data-erclose>✕</button></div>
+    <div class="er-t">${esc(p.title)}：<span>${esc(o.t || '')}</span></div>
+    <div class="er-l">${chipsHTML(shown, o)}</div>
+    ${ids.length || regions.length ? `<div class="er-a">${ids.length ? `<button class="btn small gold" data-erloc="u">📍 查看新部隊（${ids.length}）</button>` : ''}${regions.length ? `<button class="btn small" data-erloc="r">📍 查看新領土（${regions.length}）</button>` : ''}</div>` : ''}`;
+  el.classList.add('on');
+  if (ids.length || regions.length) map.flashThings(ids, regions, 12000);
+  el.onclick = (e) => {
+    if (e.target.closest('[data-erclose]')) { el.classList.remove('on'); return; }
+    const l = e.target.closest('[data-erloc]'); if (!l) return;
+    if (l.dataset.erloc === 'u') {
+      const us = S.units.filter(u => ids.includes(u.id) && !u.dead);
+      if (us.length) { map.centerOnNode(us[0].n, Math.max(map.cam.z, 1.6)); sel.clear(); for (const u of us) sel.add(u.id); syncSel(); }
+    } else if (regions.length) map.centerOnNode(regions[0], Math.max(map.cam.z, 1.4));
+    map.flashThings(ids, regions, 8000);
+  };
+  clearTimeout(resultTimer);
+  resultTimer = setTimeout(() => el.classList.remove('on'), 15000);
 }
 function checkOver() {
   if (!S.over || overShown) return;

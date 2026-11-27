@@ -3,7 +3,7 @@ import { WORLD } from '../core/world.js';
 import { UNITS, TERRAIN } from '../data/rules.js';
 import { IDEOLOGIES } from '../data/countries.js';
 import { flagCanvas } from './flags.js';
-import { drawGlyph } from './icons.js';
+import { drawGlyph, drawUiIcon } from './icons.js';
 
 const { MAP, nodes, R } = WORLD;
 const W = MAP.W, H = MAP.H, NN = WORLD.N;
@@ -97,7 +97,8 @@ export class MapView {
     this.resize();
     this.lastDraw = 0;
     const loop = (t) => {
-      if (this.dirty || (this.simDirty && t - this.lastDraw > 90)) { this.dirty = false; this.simDirty = false; this.lastDraw = t; this.draw(); }
+      if (this.flash && performance.now() > this.flash.until) { this.flash = null; this.dirty = true; }
+      if (this.dirty || (this.simDirty && t - this.lastDraw > 90) || (this.flash && t - this.lastDraw > 45)) { this.dirty = false; this.simDirty = false; this.lastDraw = t; this.draw(); }
       requestAnimationFrame(loop);
     };
     requestAnimationFrame(loop);
@@ -105,6 +106,8 @@ export class MapView {
   }
   setState(S, me) { this.S = S; this.me = me; this.geoDirty = true; this.dirty = true; }
   refresh(geo) { if (geo) this.geoDirty = true; this.dirty = true; }
+  // 讓新獲得的部隊與領土閃爍一段時間
+  flashThings(ids, regions, ms = 9000) { this.flash = { ids: new Set(ids || []), regions: regions || [], until: performance.now() + ms }; this.dirty = true; }
   refreshSim(geo) { if (geo) this.geoDirty = true; this.simDirty = true; }
   resize() {
     const r = this.cv.getBoundingClientRect();
@@ -216,6 +219,15 @@ export class MapView {
       labels.push({ t: c, x: ((sx / sa) % W + W) % W, y: sy / sa, a: sa, n: q.length, cap: q.includes(cap) });
     }
     this.labelCache = labels.sort((p, q) => q.a - p.a);
+    // 鐵路網：同一國家控制、相鄰且有工業或重要城市的地區之間以鐵路相連
+    const caps = new Set(); for (const t in S.C) if (S.C[t].exists && S.C[t].cap >= 0) caps.add(S.C[t].cap);
+    const dev = (r) => S.ind[r] >= 1 || nodes[r].vp >= 5 || caps.has(r);
+    const rails = [];
+    for (let r = 0; r < R; r++) {
+      if (!S.ctrl[r] || !dev(r)) continue;
+      for (const m of nodes[r].landNb) if (m > r && S.ctrl[m] === S.ctrl[r] && dev(m)) rails.push(r, m);
+    }
+    this.rails = rails;
   }
 
   // ---------------------------------------------------------------- 繪製
@@ -306,6 +318,11 @@ export class MapView {
       ctx.strokeStyle = '#7cf'; ctx.lineWidth = 2 * px;
       for (const i of this.highlight) if (GEOM.paths[i]) ctx.stroke(GEOM.paths[i]);
     }
+    if (this.flash && this.flash.regions.length) {
+      const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 170);
+      ctx.fillStyle = `rgba(255,215,90,${0.12 + 0.18 * pulse})`; ctx.strokeStyle = `rgba(255,225,110,${0.55 + 0.4 * pulse})`; ctx.lineWidth = (2 + 1.5 * pulse) * px;
+      for (const i of this.flash.regions) if (GEOM.paths[i]) { ctx.fill(GEOM.paths[i]); ctx.stroke(GEOM.paths[i]); }
+    }
   }
   drawOverlay(offsets) {
     const ctx = this.ctx, S = this.S, z = this.cam.z;
@@ -367,6 +384,7 @@ export class MapView {
         ctx.strokeText(name, sx, sy + 15); ctx.fillText(name, sx, sy + 15);
       }
     }
+    this.drawFeatures(inView);
     // 首都
     for (const t in S.C) {
       const C = S.C[t]; if (!C.exists || C.cap < 0 || C.cap === undefined) continue;
@@ -428,6 +446,52 @@ export class MapView {
     this.drawCounters(inView);
     if (this.box) { const [x0, y0, x1, y1] = this.box; ctx.strokeStyle = '#ffe066'; ctx.lineWidth = 1.5; ctx.setLineDash([5, 4]); ctx.strokeRect(Math.min(x0, x1), Math.min(y0, y1), Math.abs(x1 - x0), Math.abs(y1 - y0)); ctx.setLineDash([]); }
   }
+  // 鐵路、工廠、機場、港口、要塞
+  drawFeatures(inView) {
+    const ctx = this.ctx, S = this.S, z = this.cam.z;
+    if (this.mode === 'terrain') return;
+    if (z >= 0.95 && this.rails) {
+      const segs = [];
+      for (let i = 0; i < this.rails.length; i += 2) {
+        const a = nodes[this.rails[i]], b = nodes[this.rails[i + 1]];
+        const [x0, y0] = this.mapToScreen(a.x, a.y), [x1, y1] = this.mapToScreen(b.x, b.y);
+        if (Math.abs(x1 - x0) > this.vw / 2) continue;
+        if (!inView(x0, y0, 80) && !inView(x1, y1, 80)) continue;
+        segs.push(x0, y0, x1, y1);
+      }
+      const path = () => { ctx.beginPath(); for (let i = 0; i < segs.length; i += 4) { ctx.moveTo(segs[i], segs[i + 1]); ctx.lineTo(segs[i + 2], segs[i + 3]); } };
+      ctx.lineCap = 'butt';
+      path(); ctx.strokeStyle = 'rgba(28,20,12,0.62)'; ctx.lineWidth = Math.min(3.2, 1.6 + z * 0.4); ctx.stroke();
+      path(); ctx.strokeStyle = 'rgba(235,215,170,0.55)'; ctx.lineWidth = Math.min(2.2, 1 + z * 0.3); ctx.setLineDash([1.5, 3.5]); ctx.stroke(); ctx.setLineDash([]);
+    }
+    const showAll = z >= 1.35, indOnly = this.mode === 'industry' && z >= 0.8;
+    if (!showAll && !indOnly) return;
+    const airAt = new Set();
+    if (showAll) for (const u of S.units) if (!u.dead && u.n < R && UNITS[u.t].domain === 'air') airAt.add(u.n);
+    ctx.font = 'bold 9px sans-serif'; ctx.textBaseline = 'middle'; ctx.textAlign = 'left';
+    for (let r = 0; r < R; r++) {
+      const n = nodes[r];
+      const [sx, sy] = this.mapToScreen(n.x, n.y);
+      if (!inView(sx, sy, 30)) continue;
+      const items = [];
+      if (S.ind[r] >= 1) items.push(['ic', S.ind[r], '#f1c76b']);
+      if (showAll) {
+        if (airAt.has(r)) items.push(['airfield', '', '#bfe0ff']);
+        if (n.coastal && (n.vp >= 5 || S.ind[r] >= 3)) items.push(['port', '', '#a9d8f0']);
+        if (S.fort[r] >= 1) items.push(['fort', S.fort[r], '#d9d2c2']);
+      }
+      if (!items.length) continue;
+      let w = 4; for (const it of items) w += 12 + (it[1] !== '' ? 7 : 0);
+      const x0 = sx - w / 2, y0 = sy - 27;
+      ctx.fillStyle = 'rgba(14,18,24,0.72)'; roundRect(ctx, x0, y0, w, 14, 4); ctx.fill();
+      let x = x0 + 3;
+      for (const [ic, num, col] of items) {
+        drawUiIcon(ctx, ic, x, y0 + 1.5, 11, col);
+        x += 12;
+        if (num !== '') { ctx.fillStyle = '#fff'; ctx.fillText(String(num), x - 0.5, y0 + 7.5); x += 7; }
+      }
+    }
+  }
   drawCounters(inView) {
     const ctx = this.ctx, S = this.S, z = this.cam.z;
     const groups = new Map();
@@ -484,8 +548,7 @@ export class MapView {
         else { ctx.fillStyle = col; ctx.fillRect(x + 2, y + 2, 15, h - 4); }
         // 兵種符號
         const gt = glyphOf(g);
-        drawGlyph(ctx, gt, x + 18.5, y + 3.5, 13, h - 7, mine ? '#ffe9b0' : '#e8e1d0');
-        if (['inf', 'mar', 'mec', 'ltk', 'arm', 'htk', 'mbt'].includes(gt)) { ctx.strokeStyle = mine ? '#ffe9b0' : '#e8e1d0'; ctx.lineWidth = 1; ctx.strokeRect(x + 18.5, y + 3.5, 13, h - 7); }
+        drawGlyph(ctx, gt, x + 17.5, y + 3, 16.5, h - 6, mine ? '#ffe9b0' : '#efe7d4');
         // 數量
         const count = g.land || g.sea || g.air;
         ctx.fillStyle = '#fff'; ctx.font = 'bold 11px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle';
@@ -498,6 +561,13 @@ export class MapView {
         ctx.fillStyle = org > 0.5 ? '#5fd36a' : org > 0.25 ? '#e3c84a' : '#ea4a3c'; ctx.fillRect(x + 1, y + h + 1, (w - 2) * org, 2);
         ctx.fillStyle = 'rgba(255,255,255,0.55)'; ctx.fillRect(x + 1, y + h + 3.2, (w - 2) * Math.min(1, hp), 1);
         if (g.moving && mine) { ctx.fillStyle = '#ffe066'; ctx.beginPath(); ctx.arc(x + w - 1.5, y + 1.5, 2.6, 0, Math.PI * 2); ctx.fill(); }
+        if (this.flash && this.flash.ids.size && g.units.some(u => this.flash.ids.has(u.id))) {
+          const pulse = 0.5 + 0.5 * Math.sin(performance.now() / 150);
+          ctx.strokeStyle = `rgba(255,220,90,${0.5 + 0.5 * pulse})`; ctx.lineWidth = 2.5;
+          roundRect(ctx, x - 3 - 3 * pulse, y - 3 - 3 * pulse, w + 6 + 6 * pulse, h + 10 + 6 * pulse, 6); ctx.stroke();
+          ctx.fillStyle = '#ffd34a'; roundRect(ctx, x + w - 14, y - 11, 24, 11, 3); ctx.fill();
+          ctx.fillStyle = '#2a1d00'; ctx.font = 'bold 9px sans-serif'; ctx.textAlign = 'center'; ctx.textBaseline = 'middle'; ctx.fillText('NEW', x + w - 2, y - 5.2);
+        }
         this.counterRects.push({ x, y, w, h: h + 4, n: g.n, c: g.c, ids: g.units.map(u => u.id) });
         row++;
       }

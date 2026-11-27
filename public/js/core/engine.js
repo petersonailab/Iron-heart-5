@@ -213,7 +213,8 @@ function ub(S, u) { const C = S.C[u.c]; return (C && techBonus(C).u[u.t]) || ZER
 export function unitBonus(S, tag, t) { const C = S.C[tag]; return (C && techBonus(C).u[t]) || ZERO_U; }
 function upkeepOf(S, u) {
   const b = ub(S, u);
-  return UNITS[u.t].up * (1 + 0.3 * ((b.att || 0) + (b.def || 0) + (b.air || 0) + (b.bomb || 0) + (b.strat || 0) + (b.naval || 0)) / 2);
+  const C = S.C[u.c];
+  return UNITS[u.t].up * (1 + 0.3 * ((b.att || 0) + (b.def || 0) + (b.air || 0) + (b.bomb || 0) + (b.strat || 0) + (b.naval || 0)) / 2) * (1 - Math.min(0.4, (C && C.mods && C.mods.upk) || 0));
 }
 
 export function killCountry(S, tag, by) {
@@ -745,7 +746,7 @@ function applyFocus(S, tag, f) {
   if (e.res) for (let i = 0; i < e.res; i++) if (C.res.length < 5) C.res.push(null);
   if (e.rsp) C.rsp += e.rsp;
   if (e.nukeSpeed) C.nukeSpeed += e.nukeSpeed;
-  for (const k of ['att', 'def', 'armorAtt', 'air', 'nav', 'raid', 'speed']) if (e[k]) C.mods[k] += e[k];
+  for (const k of ['att', 'def', 'armorAtt', 'air', 'nav', 'raid', 'speed', 'icp', 'fcost', 'upk', 'escort']) if (e[k]) C.mods[k] = (C.mods[k] || 0) + e[k];
   if (e.man) C.man = Math.max(0, C.man + e.man);
   if (e.nukes) C.nukes += e.nukes;
   if (e.pp && C.pp < 0) C.pp = 0;
@@ -826,7 +827,7 @@ export function canBuild(S, tag, type) {
 }
 export function itemCost(type, C) {
   if (UNITS[type]) return UNITS[type].cost;
-  if (type === 'factory') return (BUILD.factory.cost + 28 * ((C && C.indTotal) || 0)) * (1 - Math.min(0.4, C ? techBonus(C).fcost : 0));
+  if (type === 'factory') return (BUILD.factory.cost + 28 * ((C && C.indTotal) || 0)) * (1 - Math.min(0.5, C ? techBonus(C).fcost + ((C.mods && C.mods.fcost) || 0) : 0));
   if (type === 'nuke' && C && hasFlag(C, 'mirv')) return BUILD.nuke.cost * 0.6;
   return BUILD[type].cost;
 }
@@ -838,7 +839,7 @@ export function recalc(S) {
     const C = S.C[t], n = nat[t];
     const law = LAWS.eco.levels[C.laws.eco].prod * LAWS.con.levels[C.laws.con].prod;
     C.indTotal = n.ind; C.vpOwned = n.vpOwned; C.vpHeld = n.vpHeld; C.popCore = n.popCore;
-    C.ic = C.icBase = n.ind * law * (1 + techBonus(C).ic) * (1 - (C.convoyLoss || 0)) * diffMod(S, t);
+    C.ic = C.icBase = n.ind * law * (1 + techBonus(C).ic + (C.mods.icp || 0)) * (1 - (C.convoyLoss || 0)) * diffMod(S, t);
     C.upkeep = 0;
   }
   for (const u of S.units) { const C = S.C[u.c]; if (C && !u.dead) C.upkeep += upkeepOf(S, u); }
@@ -851,7 +852,7 @@ function economy(S, nat) {
     const C = S.C[t], n = nat[t];
     const law = LAWS.eco.levels[C.laws.eco].prod * LAWS.con.levels[C.laws.con].prod;
     C.indTotal = n.ind;
-    C.icBase = n.ind * law * (1 + techBonus(C).ic) * (1 - C.convoyLoss) * diffMod(S, t);
+    C.icBase = n.ind * law * (1 + techBonus(C).ic + (C.mods.icp || 0)) * (1 - C.convoyLoss) * diffMod(S, t);
     C.ic = C.icBase;
     C.upkeep = 0;
   }
@@ -1292,7 +1293,7 @@ function navalPhase(S, idx, zp) {
   for (const t in S.C) {
     const C = S.C[t]; if (!C.exists) continue;
     const rp = raid[t] || 0;
-    C.convoyLoss = rp > 0 ? Math.min(0.3, rp / (rp + (C.indTotal || 1) * 4 + 20)) * (1 - Math.min(0.6, techBonus(C).escort)) : 0;
+    C.convoyLoss = rp > 0 ? Math.min(0.3, rp / (rp + (C.indTotal || 1) * 4 + 20)) * (1 - Math.min(0.7, techBonus(C).escort + (C.mods.escort || 0))) : 0;
   }
   // 艦隊修理
   for (const u of S.units) {

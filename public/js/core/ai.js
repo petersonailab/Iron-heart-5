@@ -122,6 +122,8 @@ function aiEconomy(S, t) {
 }
 
 // ============================================================ 研究 / 國策 / 法律
+// 依史實模式下 AI 開始研發原子彈的年份（研究約需一年）
+const NUKE_YEAR = { USA: 1944, SOV: 1948, ENG: 1951, FRA: 1959, PRC: 1963, RAJ: 1973, IND: 1973, ISR: 1966, PAK: 1987 };
 function aiResearch(S, t) {
   const C = S.C[t];
   const major = WORLD.countries[t].major;
@@ -133,6 +135,7 @@ function aiResearch(S, t) {
     let best = null, bs = -1;
     for (const T of TECHS) {
       if (canResearch(S, t, T.id)) continue;
+      if (T.id === 'nuc1' && S.set.hist && y < (NUKE_YEAR[t] || 1970)) continue;
       let w = CW[T.cat];
       if (T.special) w = major ? (y >= 1942 ? 2.2 : 0.3) : (y >= 1960 && (C.indTotal || 0) > 120 ? 0.6 : 0.05);
       else if (T.cat === 'air' && T.lane === 4 && !major) w *= 0.3;

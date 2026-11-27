@@ -1,7 +1,11 @@
 // 科技樹與國策樹（全螢幕檢視）
 import { TECHS, TECH_MAP, TECH_CATS, UNITS } from '../data/rules.js';
-import { canResearch, researchCost, researchSpeed, hasTech, focusTrees, focusAvailable, focusDays } from '../core/engine.js';
+import { canResearch, researchCost, researchSpeed, hasTech, focusTrees, focusAvailable, focusDays, cname } from '../core/engine.js';
 import { yearOf } from '../core/util.js';
+import { MODELS, modelFor } from '../data/models.js';
+import { modelSVG, uiIcon, glyphSVG } from './icons.js';
+import { focusEffects, effectsHTML } from './describe.js';
+import { flagURL } from './flags.js';
 
 let ctx = null; // { S(), me(), cmd(c), toast(t,k), esc(s), effText(e) }
 const st = { kind: null, tab: null, scroll: {} };
@@ -10,8 +14,26 @@ const $ = (s) => document.querySelector(s);
 export function initTrees(c) {
   ctx = c;
   const el = $('#tree');
+  el.addEventListener('pointerdown', (e) => { lastPtr = e.pointerType; });
+  el.addEventListener('pointerover', (e) => {
+    if (e.pointerType !== 'mouse') return;
+    const n = e.target.closest('[data-tid],[data-fid]');
+    if (n) { const id = n.dataset.tid || n.dataset.fid; if (id !== detailFor || detailSheet) showDetail(n, false); }
+  });
+  el.addEventListener('pointerout', (e) => {
+    if (e.pointerType !== 'mouse' || detailSheet) return;
+    const n = e.target.closest('[data-tid],[data-fid]');
+    if (n && !(e.relatedTarget && n.contains(e.relatedTarget))) hideDetail();
+  });
+  el.addEventListener('scroll', () => { if (!detailSheet) hideDetail(); }, true);
   el.addEventListener('click', (e) => {
     if (e.target.closest('[data-tclose]')) { closeTree(); return; }
+    const nd = e.target.closest('[data-tid],[data-fid]');
+    if (nd && lastPtr !== 'mouse') {
+      const id = nd.dataset.tid || nd.dataset.fid;
+      if (!(detailSheet && detailFor === id)) { showDetail(nd, true); return; }
+    }
+    if (!nd && detailSheet) hideDetail();
     const tab = e.target.closest('[data-ttab]');
     if (tab) { saveScroll(); st.tab = tab.dataset.ttab; render(); return; }
     const tn = e.target.closest('[data-tid]');
@@ -30,7 +52,7 @@ export function openTree(kind, tab) {
   $('#tree').classList.remove('hidden');
   render();
 }
-export function closeTree() { saveScroll(); st.kind = null; $('#tree').classList.add('hidden'); $('#tree').innerHTML = ''; }
+export function closeTree() { saveScroll(); hideDetail(); st.kind = null; $('#tree').classList.add('hidden'); $('#tree').innerHTML = ''; }
 let lastRefresh = 0;
 export function refreshTree(force = true) {
   if (!st.kind) return;
@@ -55,10 +77,14 @@ function render() {
   if (!S || !me || !S.C[me]) { closeTree(); return; }
   if (st.kind === 'tech') renderTech(S, me); else renderFocus(S, me);
   restoreScroll();
+  if (detailFor) {
+    const n = document.querySelector(`#tree [data-tid="${detailFor}"],#tree [data-fid="${detailFor}"]`);
+    if (n) showDetail(n, detailSheet); else hideDetail();
+  }
 }
 
 // ================================================================ 科技樹
-const NW = 150, NH = 58, LANE_H = 76, PAD_L = 118, PAD_T = 46;
+const NW = 156, NH = 66, LANE_H = 84, PAD_L = 118, PAD_T = 46;
 const yx = (y) => (y <= 1946 ? (y - 1934) * 60 : 12 * 60 + (y - 1946) * 34);
 const LAYOUT = {};
 function techLayout(cat) {
@@ -120,10 +146,11 @@ function renderTech(S, me) {
     else if (rb) { const cost = researchCost(S, me, t.id); cls = 'cur'; status = `研究中 ${Math.floor(100 * rb[0].prog / cost)}%・剩 ${Math.max(0, Math.ceil((cost - rb[0].prog) / researchSpeed(S, me, t.id)))} 天`; }
     else if (!err) { const d = Math.ceil(researchCost(S, me, t.id) / researchSpeed(S, me, t.id)); cls = ahead > 0.05 ? 'avail ahead' : 'avail'; status = `${ahead > 0.05 ? `⚠ 超前 ${ahead.toFixed(1)} 年・` : ''}約 ${d} 天`; }
     else status = '🔒 ' + err.replace(/^需要先研究/, '需要');
-    const tip = `${t.name}（${t.year}）\n${t.desc}\n效果：${techEffText(t) || '前置科技'}${err && !done ? '\n' + err : ''}`;
-    nodes += `<div class="tn ${cls}" style="left:${p.x}px;top:${p.y}px" data-tid="${t.id}" title="${esc(tip)}">
+    const md = MODELS[t.id] ? modelFor(S, me, t.id) : null;
+    nodes += `<div class="tn ${cls}${md ? ' hasm' : ''}" style="left:${p.x}px;top:${p.y}px" data-tid="${t.id}">
+      ${md ? `<div class="tn-pic">${modelSVG(md.spec)}</div>` : ''}
       <div class="tn-h"><span class="tn-y">${t.year}</span>${t.e.unlock ? `<span class="tn-u">新兵種</span>` : ''}${t.special ? `<span class="tn-u sp">戰略</span>` : ''}</div>
-      <div class="tn-n">${esc(t.name)}</div><div class="tn-s">${esc(status)}</div>${rb ? `<div class="tn-bar"><i style="width:${Math.min(100, 100 * rb[0].prog / researchCost(S, me, t.id))}%"></i></div>` : ''}</div>`;
+      <div class="tn-n">${esc(t.name)}</div>${md ? `<div class="tn-m">${esc(md.name)}${md.from !== me ? '＊' : ''}</div>` : ''}<div class="tn-s">${esc(status)}</div>${rb ? `<div class="tn-bar"><i style="width:${Math.min(100, 100 * rb[0].prog / researchCost(S, me, t.id))}%"></i></div>` : ''}</div>`;
     for (const q of t.req) {
       const qp = L.pos[q]; if (!qp) continue;
       const x1 = qp.x + NW, y1 = qp.y + NH / 2, x2 = p.x, y2 = p.y + NH / 2;
@@ -139,7 +166,7 @@ function renderTech(S, me) {
   const slots = C.res.map((s, i) => s ? `<span class="slot cur">${esc(TECH_MAP[s.id] ? TECH_MAP[s.id].name : '?')} <button class="btn tiny" data-tcancel="${i}" title="取消">✕</button></span>` : `<span class="slot">空欄位</span>`).join('');
   $('#tree').innerHTML = `<div class="thead"><h3>🔬 科技樹</h3><div class="slots">研究欄位：${slots}</div><button class="btn small" data-tclose>✕ 關閉</button></div>
     <div class="ttabs">${tabs}</div>
-    <div class="tlegend"><span class="lg done">已完成</span><span class="lg cur">研究中</span><span class="lg avail">可研究</span><span class="lg ahead">超前時代（較慢）</span><span class="lg locked">尚未解鎖</span><span class="hint">點擊科技即可研究；科技沒有互斥，依真實年份研發最有效率。</span></div>
+    <div class="tlegend"><span class="lg done">已完成</span><span class="lg cur">研究中</span><span class="lg avail">可研究</span><span class="lg ahead">超前時代（較慢）</span><span class="lg locked">尚未解鎖</span><span class="hint">點擊科技即可研究（手機：先點一下看說明）。標「＊」的型號來自盟國或援助國。科技沒有互斥，依真實年份研發最有效率。</span></div>
     <div class="tbody"><div class="tcanvas" style="width:${L.w}px;height:${L.h}px">
       <div class="ticks">${ticks}</div><div class="nowline" style="left:${nowX}px"><span>現在</span></div>${lanes}
       <svg width="${L.w}" height="${L.h}">${lines}</svg>${nodes}</div></div>`;
@@ -192,19 +219,24 @@ function focusLayout(list) {
   FLAYOUT.set(list, L);
   return L;
 }
-function focusIcon(e) {
-  if (e.war || e.limWar) return '⚔️';
-  if (e.ideo || e.joinFac || e.createFac || e.guar || e.nap || e.leaveFac) return '🏛️';
-  if (e.units) { const k = Object.keys(e.units)[0]; const d = UNITS[k] && UNITS[k].domain; return d === 'air' ? '✈️' : d === 'sea' ? '⚓' : '🪖'; }
-  if (e.ind) return '🏭';
-  if (e.res || e.rsp || e.rcat || e.techs || e.nukeSpeed) return '🔬';
-  if (e.fort || e.fortAt) return '🧱';
-  if (e.air) return '✈️';
-  if (e.nav || e.raid) return '⚓';
-  if (e.att || e.def || e.armorAtt || e.speed) return '🎖️';
-  if (e.man) return '👥';
-  return '⭐';
+function focusIconName(e) {
+  if (e.war || e.limWar) return 'flag';
+  if (e.ideo || e.joinFac || e.createFac || e.guar || e.nap || e.leaveFac) return 'diplomacy';
+  if (e.units) { const k = Object.keys(e.units)[0]; const d = UNITS[k] && UNITS[k].domain; return d === 'air' ? 'plane' : d === 'sea' ? 'port' : UNITS[k] && UNITS[k].armor ? 'tank' : 'army'; }
+  if (e.ind || e.icp || e.fcost || e.upk) return 'ic';
+  if (e.escort) return 'port';
+  if (e.res || e.rsp || e.rcat || e.techs) return 'research';
+  if (e.nukeSpeed || e.nukes) return 'nuke';
+  if (e.fort || e.fortAt || e.coastFort) return 'fort';
+  if (e.air) return 'plane';
+  if (e.nav || e.raid) return 'port';
+  if (e.armorAtt) return 'tank';
+  if (e.att || e.def || e.speed) return 'army';
+  if (e.man) return 'man';
+  return 'pp';
 }
+const ECON_KEYS = ['ind', 'icp', 'fcost', 'upk', 'escort'];
+const isEcon = (e) => ECON_KEYS.some(k => e[k] > 0) && !e.war && !e.units;
 function renderFocus(S, me) {
   const C = S.C[me], esc = ctx.esc;
   const trees = focusTrees(S, me);
@@ -228,9 +260,8 @@ function renderFocus(S, me) {
     else if (!err) { cls = C.focus.cur ? 'avail wait' : 'avail'; status = `${days} 天`; }
     else status = '🔒 ' + err;
     const exNames = (f.excl || []).filter(q => byId[q]).map(q => byId[q].name);
-    const tip = `${f.name}（${days} 天）\n${f.desc || ''}\n效果：${ctx.effText(f.eff)}${exNames.length ? '\n與「' + exNames.join('」「') + '」互斥' : ''}${f.hist ? '\n（史實路線）' : ''}${err && cls === 'locked' ? '\n' + err : ''}`;
-    nodes += `<div class="fn ${cls}" style="left:${p.x}px;top:${p.y}px" data-fid="${f.id}" title="${esc(tip)}">
-      <div class="fn-i">${focusIcon(f.eff)}</div><div class="fn-n">${esc(f.name)}</div><div class="fn-s">${esc(status)}</div>${f.hist ? '<i class="fn-h" title="史實路線">史</i>' : ''}${exNames.length ? '<i class="fn-x" title="互斥國策">⇄</i>' : ''}
+    nodes += `<div class="fn ${cls}${isEcon(f.eff) ? ' econ' : ''}" style="left:${p.x}px;top:${p.y}px" data-fid="${f.id}">
+      <div class="fn-i">${uiIcon(focusIconName(f.eff))}</div><div class="fn-n">${esc(f.name)}</div><div class="fn-s">${esc(status)}</div>${f.hist ? '<i class="fn-h" title="史實路線">史</i>' : ''}${exNames.length ? '<i class="fn-x" title="互斥國策">⇄</i>' : ''}
       ${isCur ? `<div class="tn-bar"><i style="width:${Math.min(100, 100 * C.focus.prog / days)}%"></i></div>` : ''}</div>`;
     const draw = (q, dashed) => {
       const qp = L.pos[q]; if (!qp) return;
@@ -249,7 +280,7 @@ function renderFocus(S, me) {
   const cur = C.focus.cur && T.list.concat(...trees.map(t => t.list)).find(f => f.id === C.focus.cur);
   $('#tree').innerHTML = `<div class="thead"><h3>🏛️ 國策樹</h3><div class="slots">${cur ? `進行中：<span class="slot cur">${esc(cur.name)}・剩 ${Math.max(0, focusDays(S, me, cur) - C.focus.prog)} 天 <button class="btn tiny" data-fcancel title="取消（已投入的天數會損失）">✕</button></span>` : '<span class="slot">沒有進行中的國策</span>'}</div><button class="btn small" data-tclose>✕ 關閉</button></div>
     <div class="ttabs">${tabs}</div>
-    <div class="tlegend"><span class="lg done">已完成</span><span class="lg cur">進行中</span><span class="lg avail">可選擇</span><span class="lg excl">互斥（已無法選擇）</span><span class="lg locked">尚未解鎖</span><span class="hint">⇄ 表示互斥：只能二選一。標有「史」的是歷史上的選擇。</span></div>
+    <div class="tlegend"><span class="lg done">已完成</span><span class="lg cur">進行中</span><span class="lg avail">可選擇</span><span class="lg excl">互斥（已無法選擇）</span><span class="lg locked">尚未解鎖</span><span class="lg econ">經濟類</span><span class="hint">⇄ 表示互斥：只能二選一。標有「史」的是歷史上的選擇。滑鼠移到國策上（手機：點一下）可看詳細說明。</span></div>
     <div class="tbody"><div class="tcanvas" style="width:${L.w}px;height:${L.h}px"><svg width="${L.w}" height="${L.h}">${lines}</svg>${marks}${nodes}</div></div>`;
 }
 function clickFocus(id) {
@@ -262,4 +293,95 @@ function clickFocus(id) {
   if (err) { ctx.toast(err, 'warn'); return; }
   if (C.focus.cur) { ctx.toast('已有進行中的國策（可按上方 ✕ 取消）', 'warn'); return; }
   ctx.cmd({ type: 'focus', id }).then(() => refreshTree());
+}
+
+// ================================================================ 詳細說明（滑鼠提示／手機底部面板）
+let lastPtr = 'mouse', detailFor = null, detailSheet = false;
+function detailEl() {
+  let d = document.getElementById('tdetail');
+  if (!d) {
+    d = document.createElement('div'); d.id = 'tdetail'; d.className = 'hidden';
+    document.body.appendChild(d);
+    d.addEventListener('click', (e) => {
+      const b = e.target.closest('[data-dact]'); if (!b) return;
+      const [act, id] = b.dataset.dact.split(':');
+      hideDetail();
+      if (act === 'research') clickTech(id);
+      else if (act === 'focus') clickFocus(id);
+    });
+  }
+  return d;
+}
+function hideDetail() { const d = document.getElementById('tdetail'); if (d) { d.className = 'hidden'; d.innerHTML = ''; } detailFor = null; detailSheet = false; }
+function showDetail(node, sheet) {
+  const S = ctx.S(), me = ctx.me(); if (!S || !me) return;
+  const d = detailEl();
+  const id = node.dataset.tid || node.dataset.fid;
+  d.innerHTML = node.dataset.tid ? techDetail(S, me, TECH_MAP[id], sheet) : focusDetail(S, me, id, sheet);
+  detailFor = id; detailSheet = sheet;
+  d.className = sheet ? 'sheet' : 'pop';
+  if (!sheet) {
+    const r = node.getBoundingClientRect(), w = d.offsetWidth, h = d.offsetHeight;
+    let x = r.right + 10; if (x + w > window.innerWidth - 8) x = r.left - w - 10;
+    if (x < 8) x = Math.max(8, Math.min(window.innerWidth - w - 8, r.left));
+    let y = r.top - 10; if (y + h > window.innerHeight - 8) y = window.innerHeight - h - 8; if (y < 8) y = 8;
+    d.style.left = x + 'px'; d.style.top = y + 'px';
+  } else { d.style.left = ''; d.style.top = ''; }
+}
+const ESC = (x) => ctx.esc(x);
+const flagI = (S, t) => { const u = flagURL(t, yearOf(S.day)); return u ? `<img class="dflag" src="${u}" alt="">` : ''; };
+function techItems(T) {
+  const out = [];
+  const e = T.e;
+  if (e.unlock) out.push({ ic: 'u:' + e.unlock, t: `解鎖新兵種：${UNITS[e.unlock].name}`, d: UNITS[e.unlock].desc, good: true });
+  const rest = techEffText({ ...T, e: { ...e, unlock: undefined } });
+  if (rest) for (const part of rest.split('；')) out.push({ ic: 'research', t: part, good: true });
+  return out;
+}
+function techDetail(S, me, T, sheet) {
+  const C = S.C[me];
+  const done = hasTech(C, T.id), cur = C.res.find(x => x && x.id === T.id);
+  const err = done || cur ? null : canResearch(S, me, T.id);
+  const now = yearOf(S.day) + (S.day % 365) / 365, ahead = T.year - now;
+  const days = Math.ceil(researchCost(S, me, T.id) / researchSpeed(S, me, T.id));
+  const status = done ? '✓ 已完成' : cur ? `研究中（${Math.floor(100 * cur.prog / researchCost(S, me, T.id))}%）` : err ? '🔒 ' + err : `可研究・約 ${days} 天${ahead > 0.05 ? `（超前 ${ahead.toFixed(1)} 年，速度變慢）` : ''}`;
+  const cat = TECH_CATS.find(c => c.id === T.cat);
+  let h = `<div class="dt-h"><small>${cat.icon} ${cat.name}・${T.year} 年</small><h4>${ESC(T.name)}</h4><div class="dt-st ${done ? 'ok' : err ? 'no' : 'go'}">${ESC(status)}</div></div>`;
+  const M = MODELS[T.id];
+  if (M) {
+    const md = modelFor(S, me, T.id);
+    h += `<div class="dt-pic">${modelSVG(md.spec)}</div><div class="dt-model">${flagI(S, md.from)}你的型號：<b>${ESC(md.name)}</b>${md.from !== me ? `<small>（${ESC(cname(S, md.from))}的型號：本國沒有自行研製）</small>` : ''}</div>`;
+    const others = Object.keys(M.m).filter(t => t !== md.from).slice(0, 8);
+    if (others.length) h += `<div class="dt-sec">各國的同代型號</div><div class="dt-others">${others.map(t => { const m = modelFor(S, t, T.id); return `<div class="dt-o">${modelSVG(m.spec)}<span>${flagI(S, t)}${ESC(m.name)}</span></div>`; }).join('')}</div>`;
+    h += `<a class="dt-wiki" href="https://zh.wikipedia.org/w/index.php?search=${encodeURIComponent(md.name.replace(/（.*）/, '').split('／')[0])}" target="_blank" rel="noopener">🔍 在維基百科查看「${ESC(md.name.replace(/（.*）/, '').split('／')[0])}」的照片與資料</a>`;
+  }
+  h += `<div class="dt-desc">${ESC(T.desc)}</div><div class="dt-sec">效果</div>${effectsHTML(techItems(T))}`;
+  if (T.req.length) h += `<div class="dt-sec">前置科技</div><div class="dt-req">${T.req.map(q => `<span class="${hasTech(C, q) ? 'ok' : 'no'}">${hasTech(C, q) ? '✓' : '✗'} ${ESC(TECH_MAP[q] ? TECH_MAP[q].name : q)}</span>`).join('')}</div>`;
+  if (T.minInd) h += `<div class="dt-note">需要國家工業 ${T.minInd} 以上（目前 ${Math.round(C.indTotal || 0)}）。</div>`;
+  h += `<div class="dt-note">基礎研究量 ${Math.round(T.cost || 100)}（依研究速度換算成天數）。比歷史年份提早一年約慢一倍；落後於時代的科技最多可加速 45% 追趕。工業規模越大、研究加成越多，研究越快。</div>`;
+  if (sheet) h += `<div class="dt-act">${!done && !cur && !err ? `<button class="btn gold" data-dact="research:${T.id}">開始研究</button>` : ''}<button class="btn" data-dact="close:">關閉</button></div>`;
+  return h;
+}
+function focusDetail(S, me, id, sheet) {
+  const C = S.C[me];
+  const all = focusTrees(S, me).flatMap(t => t.list);
+  const f = all.find(x => x.id === id); if (!f) return '';
+  const byId = {}; for (const x of all) byId[x.id] = x;
+  const done = C.focus.done.includes(id), cur = C.focus.cur === id;
+  const err = done || cur ? null : focusAvailable(S, me, f);
+  const days = focusDays(S, me, f);
+  const status = done ? '✓ 已完成' : cur ? `進行中・剩 ${Math.max(0, days - C.focus.prog)} 天` : err ? '🔒 ' + err : C.focus.cur ? '可選擇（需先完成或取消目前的國策）' : '可選擇';
+  let h = `<div class="dt-h"><small>${uiIcon(focusIconName(f.eff))} 國策・${days} 天${isEcon(f.eff) ? '・經濟類' : ''}</small><h4>${ESC(f.name)}</h4><div class="dt-badges">${f.hist ? '<span class="b-hist">史實路線</span>' : ''}${f.alt ? '<span class="b-alt">架空路線</span>' : ''}${(f.excl || []).length ? '<span class="b-ex">⇄ 互斥</span>' : ''}</div><div class="dt-st ${done ? 'ok' : err ? 'no' : 'go'}">${ESC(status)}</div></div>`;
+  if (f.desc) h += `<div class="dt-desc">${ESC(f.desc)}</div>`;
+  h += `<div class="dt-sec">效果與獎勵</div>${effectsHTML(focusEffects(S, me, f.eff))}`;
+  if (f.req.length || (f.reqAny || []).length) {
+    h += `<div class="dt-sec">前置條件</div><div class="dt-req">${f.req.map(q => `<span class="${C.focus.done.includes(q) ? 'ok' : 'no'}">${C.focus.done.includes(q) ? '✓' : '✗'} ${ESC(byId[q] ? byId[q].name : q)}</span>`).join('')}`;
+    if ((f.reqAny || []).length) h += `<span class="any">以下任一：</span>${f.reqAny.map(q => `<span class="${C.focus.done.includes(q) ? 'ok' : 'no'}">${C.focus.done.includes(q) ? '✓' : '✗'} ${ESC(byId[q] ? byId[q].name : q)}</span>`).join('')}`;
+    h += '</div>';
+  }
+  if ((f.excl || []).length) h += `<div class="dt-sec">互斥（完成此國策後無法再選）</div><div class="dt-req">${f.excl.map(q => `<span class="no">⇄ ${ESC(byId[q] ? byId[q].name : q)}</span>`).join('')}</div>`;
+  if (f.minYear || f.maxYear || f.coastal) h += `<div class="dt-note">${f.minYear ? `${f.minYear} 年起可選。` : ''}${f.maxYear ? `${f.maxYear} 年後無法再選。` : ''}${f.coastal ? '需要擁有海岸線。' : ''}</div>`;
+  h += `<div class="dt-note">${f.hist ? '這是歷史上的選擇，AI 在「依照歷史」模式下會走這條路。' : f.alt ? '架空歷史路線：AI 在「依照歷史」模式下不會選擇，由你改寫歷史。' : '完成後立即獲得上述效果。國策一次只能進行一項。'}</div>`;
+  if (sheet) h += `<div class="dt-act">${!done && !cur && !err && !C.focus.cur ? `<button class="btn gold" data-dact="focus:${f.id}">開始此國策</button>` : ''}<button class="btn" data-dact="close:">關閉</button></div>`;
+  return h;
 }

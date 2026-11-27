@@ -45,6 +45,11 @@ export const FOCUS = {
     F('g_rockets', '佩內明德火箭中心', 70, { rcat: { sci: 0.2 }, techs: ['rkt1'] }, ['g_research'], { minYear: 1939, desc: '馮·布朗的 V-2 火箭研發基地。' }),
     F('g_jets', '噴射機計畫', 70, { rcat: { air: 0.15 } }, ['g_rockets'], { minYear: 1941, desc: 'Me 262 噴射戰鬥機的研發。' }),
     F('g_uranium', '鈾計畫', 70, { nukeSpeed: 0.5 }, ['g_research'], { minYear: 1939, alt: true, desc: '海森堡主持的核分裂研究（史實上未能造出原子彈）。' }),
+    F('g_reichswerke', '帝國工廠', 70, { ind: 1, fcost: 0.05 }, ['g_4yp'], { desc: '1937 年成立的國營「赫爾曼·戈林帝國工廠」，開採國內低品位鐵礦以減少進口。' }),
+    F('g_swedore', '瑞典鐵礦', 50, { icp: 0.05 }, ['g_reichswerke'], { desc: '確保經挪威納爾維克港進口瑞典的高品位鐵礦，鋼鐵生產效率提高。' }),
+    F('g_vw', '國民汽車計畫', 50, { man: 60, fcost: 0.03 }, ['g_autobahn'], { desc: '1937 年成立福斯汽車工廠，戰時改為生產軍用桶車。' }),
+    F('g_rational', '軍需生產合理化', 70, { icp: 0.06, upk: 0.05 }, ['g_speer'], { minYear: 1942, desc: '標準化零件、減少型號、集中生產，軍需產量在 1944 年達到高峰。' }),
+    F('g_disperse', '工業分散化', 50, { def: 0.03, icp: 0.03 }, ['g_rational'], { minYear: 1944, desc: '把工廠分散到地下設施與鄉間，降低盟軍戰略轟炸的損害。' }),
   ] },
   // ================================================================ 義大利
   ITA: { name: '義大利', list: [
@@ -73,6 +78,10 @@ export const FOCUS = {
     F('i_air', '皇家空軍', 70, { units: { ftr: 2, bmb: 1 } }, ['i_ind']),
     F('i_air2', '空軍現代化', 70, { techs: ['f1'], air: 0.05 }, ['i_air']),
     F('i_torpedo', '魚雷轟炸機', 50, { techs: ['nvb1'], units: { nvb: 2 } }, ['i_air2'], { desc: 'SM.79「雀鷹」魚雷轟炸機。' }),
+    F('i_iri', '工業重建機構', 70, { ind: 2, icp: 0.03 }, [], { desc: '1933 年成立的國營控股公司（IRI），接管瀕臨破產的銀行與重工業。' }),
+    F('i_grain', '糧食戰爭', 50, { man: 100, pp: 20 }, ['i_iri'], { desc: '墨索里尼推動的小麥自給運動。' }),
+    F('i_pontine', '開墾彭蒂內沼澤', 50, { man: 80, ind: 1 }, ['i_grain'], { desc: '排乾羅馬南方的沼澤，興建拉蒂納等新城鎮。' }),
+    F('i_fiat', '飛雅特軍需生產', 50, { fcost: 0.08, units: { ltk: 1 } }, ['i_iri'], { desc: '杜林的飛雅特集團大量生產卡車、戰車與飛機。' }),
   ] },
   // ================================================================ 日本
   JAP: { name: '日本', list: [
@@ -101,6 +110,10 @@ export const FOCUS = {
     F('j_kido', '機動部隊', 70, { units: { car: 2 }, techs: ['dn3'] }, ['j_navy'], { minYear: 1940, desc: '以航艦為核心的第一航空艦隊。' }),
     F('j_navair', '海軍航空隊', 70, { units: { nvb: 3 }, techs: ['nvb1'] }, ['j_kido']),
     F('j_air', '陸軍航空隊', 70, { units: { ftr: 2, bmb: 2 } }, ['j_ind']),
+    F('j_zaibatsu', '財閥合作', 70, { ind: 2, icp: 0.03 }, ['j_ind'], { desc: '三菱、三井、住友等財閥全力投入軍需生產。' }),
+    F('j_kikaku', '企劃院', 50, { fcost: 0.08, ppd: 0.1 }, ['j_zaibatsu'], { minYear: 1937, desc: '1937 年成立的經濟計畫機關，統籌物資動員計畫。' }),
+    F('j_mantetsu', '南滿洲鐵道', 50, { ind: 1, man: 100 }, ['j_man'], { desc: '滿鐵在中國東北經營鐵路、撫順煤礦與鞍山鋼鐵。' }),
+    F('j_shipyard', '戰時標準船', 50, { escort: 0.15, ind: 1 }, ['j_navy'], { minYear: 1942, desc: '簡化設計、大量建造運輸船，彌補被美軍潛艇擊沉的船隻。' }),
   ] },
   // ================================================================ 蘇聯
   SOV: { name: '蘇聯', list: [
@@ -131,6 +144,11 @@ export const FOCUS = {
     F('s_air', '紅色空軍', 70, { units: { ftr: 3 } }, ['s_5yp2']),
     F('s_il2', '伊爾-2 攻擊機', 50, { techs: ['cas2'], units: { cas: 2 } }, ['s_air'], { minYear: 1941 }),
     F('s_navy', '紅海軍', 70, { units: { sub: 3 }, nav: 0.05 }, ['s_5yp2'], { coastal: true }),
+    F('s_stakhanov', '斯達漢諾夫運動', 50, { icp: 0.05 }, ['s_5yp2'], { desc: '1935 年起的勞動競賽運動，以超額完成生產定額為榮。' }),
+    F('s_gosplan', '國家計畫委員會', 70, { fcost: 0.08, rsp: 0.03 }, ['s_5yp2'], { desc: '負責制定五年計畫的中央計畫機關。' }),
+    F('s_magnit', '馬格尼托哥爾斯克鋼鐵廠', 70, { ind: 3 }, ['s_urals'], { desc: '烏拉爾南部的巨型鋼鐵聯合企業，戰時生產了大量坦克鋼板。' }),
+    F('s_baku', '巴庫油田', 50, { icp: 0.04, ind: 1 }, ['s_5yp3'], { desc: '高加索的巴庫油田提供蘇聯大部分的石油。' }),
+    F('s_tankograd', '坦克城', 70, { ind: 2, units: { arm: 1 } }, ['s_evac'], { minYear: 1941, desc: '車里雅賓斯克的拖拉機廠改建為坦克生產中心，被稱為「坦克城」。' }),
   ] },
   // ================================================================ 英國
   ENG: { name: '英國', list: [
@@ -157,6 +175,10 @@ export const FOCUS = {
     F('e_singapore', '新加坡要塞', 50, { fortAt: ['eng_singapore', 'eng_gibraltar', 'eng_malta'], fortLvl: 2 }, ['e_empire'], { desc: '「東方的直布羅陀」。' }),
     F('e_commonwealth', '大英國協動員', 50, { man: 300, pp: 40 }, ['e_empire'], { minYear: 1939 }),
     F('e_desert', '沙漠之鼠', 50, { units: { arm: 1 }, armorAtt: 0.05 }, ['e_empire'], { minYear: 1940, desc: '第 7 裝甲師，北非戰場的勁旅。' }),
+    F('e_imperial', '帝國特惠制', 50, { icp: 0.04, pp: 30 }, [], { desc: '1932 年渥太華會議建立的大英國協關稅優惠體系。' }),
+    F('e_sterling', '英鎊區', 50, { ppd: 0.1, pp: 20 }, ['e_imperial'], { desc: '以英鎊結算的貿易圈，戰時可向殖民地與自治領籌措資金。' }),
+    F('e_keynes', '戰爭財政', 50, { icp: 0.05 }, ['e_rearm'], { minYear: 1940, desc: '凱因斯《如何支付戰爭》提出的強制儲蓄、增稅與物價管制。' }),
+    F('e_ration', '戰時配給制度', 35, { man: 100, upk: 0.05 }, ['e_keynes'], { minYear: 1940, desc: '糧食與物資配給，把資源集中到戰爭用途。' }),
   ] },
   // ================================================================ 法國
   FRA: { name: '法國', list: [
@@ -180,6 +202,10 @@ export const FOCUS = {
     F('f_alliance', '英法同盟', 35, { pp: 50 }, [], { minYear: 1938 }),
     F('f_free', '自由法國', 35, { pp: 60, man: 100 }, [], { minYear: 1940, desc: '戴高樂 1940 年 6 月 18 日的廣播：「法蘭西的抵抗之火不會熄滅。」' }),
     F('f_resist', '抵抗運動', 50, { def: 0.03, att: 0.03 }, ['f_free'], { minYear: 1941 }),
+    F('f_devalue', '法郎貶值', 50, { icp: 0.04 }, [], { desc: '1936 年法郎貶值，提振出口與工業生產。' }),
+    F('f_matignon', '馬提尼翁協議', 35, { pp: 40, man: 50 }, ['f_popfront'], { desc: '1936 年勞資協議：每週 40 小時工時、帶薪休假與集體談判。' }),
+    F('f_sncf', '國營鐵路', 50, { ind: 1, speed: 0.03 }, ['f_devalue'], { desc: '1938 年成立法國國家鐵路公司（SNCF）。' }),
+    F('f_colres', '殖民地資源', 50, { ind: 2 }, ['f_colonial'], { desc: '開發北非的礦產與印度支那的橡膠。' }),
   ] },
   // ================================================================ 美國
   USA: { name: '美國', list: [
@@ -209,6 +235,11 @@ export const FOCUS = {
     F('u_research', '科學研究發展局', 70, { res: 1 }, [], { desc: '1941 年成立的 OSRD。' }),
     F('u_radlab', '麻省理工輻射實驗室', 50, { techs: ['radar2'] }, ['u_research'], { minYear: 1941 }),
     F('u_manhattan', '曼哈頓計畫', 70, { nukeSpeed: 1.0, rsp: 0.05 }, ['u_research'], { minYear: 1942, hist: true, desc: '研發原子彈的秘密計畫。' }),
+    F('u_ssa', '社會安全法', 35, { pp: 40, ppd: 0.1 }, ['u_newdeal'], { desc: '1935 年建立養老金與失業保險制度。' }),
+    F('u_wpb', '戰時生產委員會', 70, { icp: 0.08 }, ['u_arsenal'], { minYear: 1942, desc: '1942 年成立，統籌全國的軍需生產與原料分配。' }),
+    F('u_willow', '柳奔工廠', 70, { ind: 3 }, ['u_wpb'], { minYear: 1942, desc: '福特在密西根州的巨型工廠，高峰時每小時生產一架 B-24 轟炸機。' }),
+    F('u_kaiser', '凱撒造船廠', 50, { escort: 0.15, fcost: 0.05 }, ['u_liberty'], { minYear: 1941, desc: '以預製工法把建造一艘自由輪的時間縮短到數天。' }),
+    F('u_rubber', '合成橡膠計畫', 50, { techs: ['syn2'], icp: 0.02 }, ['u_arsenal'], { minYear: 1942, desc: '日本佔領東南亞橡膠產地後，美國以合成橡膠取代天然橡膠。' }),
   ] },
   // ================================================================ 中華民國
   CHI: { name: '中華民國', list: [
@@ -232,6 +263,10 @@ export const FOCUS = {
     F('c_expedition', '中國遠征軍', 50, { units: { inf: 3 }, att: 0.03 }, ['c_conscript'], { minYear: 1942, desc: '入緬作戰，保衛滇緬公路。' }),
     F('c_xforce', 'X 部隊', 50, { att: 0.05, techs: ['inf3'] }, ['c_expedition'], { minYear: 1943, desc: '在印度藍姆伽受美式訓練與裝備的部隊。' }),
     F('c_kmt', '黨政改革', 70, { ppd: 0.3 }, []),
+    F('c_fabi', '法幣改革', 50, { pp: 40, icp: 0.03 }, [], { desc: '1935 年統一貨幣，由中央、中國、交通等銀行發行法幣。' }),
+    F('c_ncr', '資源委員會', 70, { ind: 2 }, ['c_ind'], { desc: '負責重工業、礦業與電力建設的國營機構。' }),
+    F('c_relocate', '工廠內遷', 50, { ind: 1, def: 0.02 }, ['c_ncr'], { minYear: 1937, desc: '1937–1938 年把沿海工廠拆遷到西南大後方，保存抗戰的工業命脈。' }),
+    F('c_indusco', '工業合作社', 50, { ind: 1, man: 100 }, ['c_relocate'], { minYear: 1938, desc: '「工合」運動在大後方建立數千個小型工業合作社。' }),
   ] },
   // ================================================================ 中國共產黨（1949 年前）
   PRC: { name: '中國共產黨', list: [
@@ -249,6 +284,8 @@ export const FOCUS = {
     F('p_war', '人民戰爭', 70, { att: 0.1 }, [], { reqAny: ['p_100', 'p_indep'] }),
     F('p_civil', '解放戰爭', 50, { att: 0.1, man: 300 }, ['p_war'], { minYear: 1946 }),
     F('p_three', '三大戰役', 50, { att: 0.08, units: { inf: 4 } }, ['p_civil'], { minYear: 1948 }),
+    F('p_bank', '邊區銀行', 35, { pp: 20, ppd: 0.05 }, ['p_land'], { desc: '陝甘寧邊區銀行發行邊幣，穩定根據地經濟。' }),
+    F('p_coop', '互助合作社', 50, { man: 100, ind: 1 }, ['p_bank'], { desc: '組織農民互助生產，支援前線。' }),
   ] },
   // ================================================================ 冷戰：美國
   USA_COLD: { name: '冷戰：美國', list: [
@@ -274,6 +311,9 @@ export const FOCUS = {
     F('uc_reagan', '雷根擴軍', 70, { ind: 4, units: { jet: 2 } }, ['uc_avf'], { minYear: 1981 }),
     F('uc_sdi', '戰略防禦倡議', 70, { rsp: 0.1, def: 0.05 }, ['uc_reagan'], { minYear: 1983, desc: '俗稱「星戰計畫」。' }),
     F('uc_airland', '空地一體戰', 50, { techs: ['dl9'] }, ['uc_reagan'], { minYear: 1982 }),
+    F('uc_bretton', '布列敦森林體系', 35, { pp: 60, ppd: 0.1 }, [], { minYear: 1946, desc: '以美元為中心的國際貨幣體系，美元成為世界儲備貨幣。' }),
+    F('uc_interstate', '州際公路系統', 70, { ind: 3, speed: 0.03 }, [], { minYear: 1956, desc: '艾森豪推動的全國高速公路網，兼顧經濟與國防需要。' }),
+    F('uc_silicon', '矽谷與半導體', 70, { rsp: 0.08, icp: 0.04 }, ['uc_darpa'], { minYear: 1960, desc: '積體電路與半導體產業在加州聚集。' }),
   ] },
   // ================================================================ 冷戰：蘇聯
   SOV_COLD: { name: '冷戰：蘇聯', list: [
@@ -296,6 +336,10 @@ export const FOCUS = {
     F('sc_glasnost', '開放與改革', 70, { pp: 150, ind: 3 }, ['sc_destal'], { hist: true, minYear: 1985, excl: ['sc_stagnation'], desc: '戈巴契夫的政治開放與經濟改革。' }),
     F('sc_stagnation', '維持現狀', 50, { att: 0.05 }, ['sc_brezhnev'], { alt: true, minYear: 1985, excl: ['sc_glasnost'] }),
     F('sc_afghan', '撤出阿富汗', 50, { pp: 60, tension: -3 }, ['sc_glasnost'], { minYear: 1988 }),
+    F('sc_virgin', '開墾處女地', 50, { man: 200, ind: 1 }, ['sc_destal'], { minYear: 1954, desc: '赫魯雪夫在哈薩克與西伯利亞大規模開墾荒地種植小麥。' }),
+    F('sc_kosygin', '柯西金改革', 70, { icp: 0.06 }, ['sc_destal'], { minYear: 1965, desc: '引進利潤與獎金指標，嘗試提高國營企業效率。' }),
+    F('sc_druzhba', '友誼輸油管', 50, { ind: 2, pp: 30 }, ['sc_4yp'], { minYear: 1964, desc: '當時世界最長的輸油管，把石油輸往東歐各國。' }),
+    F('sc_bam', '貝阿鐵路', 70, { ind: 2 }, ['sc_druzhba'], { minYear: 1974, desc: '貝加爾－阿穆爾幹線，開發西伯利亞東部資源。' }),
   ] },
   // ================================================================ 冷戰：中華人民共和國
   PRC_COLD: { name: '中華人民共和國', list: [
@@ -316,6 +360,9 @@ export const FOCUS = {
     F('pc_sez', '經濟特區', 70, { ind: 4 }, ['pc_reform'], { minYear: 1980, desc: '深圳等經濟特區。' }),
     F('pc_cut', '百萬大裁軍', 50, { pp: 50, att: 0.05 }, ['pc_reform'], { minYear: 1985 }),
     F('pc_863', '863 計畫', 50, { rsp: 0.1 }, ['pc_reform'], { minYear: 1986, desc: '高技術研究發展計畫。' }),
+    F('pc_aid', '蘇聯援建 156 項工程', 70, { ind: 4, fcost: 0.05 }, ['pc_soviet'], { minYear: 1953, desc: '第一個五年計畫期間由蘇聯援建的重工業項目。' }),
+    F('pc_daqing', '大慶油田', 50, { ind: 2, icp: 0.03 }, ['pc_5yp'], { minYear: 1960, desc: '1959 年發現的大油田，使中國石油基本自給。' }),
+    F('pc_township', '鄉鎮企業', 50, { ind: 3, man: 200 }, ['pc_reform'], { minYear: 1980, desc: '農村的鄉鎮企業成為改革開放初期的經濟引擎。' }),
   ] },
   // ================================================================ 冷戰：中華民國（台灣）
   CHI_COLD: { name: '中華民國（臺灣）', list: [
@@ -328,6 +375,8 @@ export const FOCUS = {
     F('c2_science', '新竹科學園區', 50, { rsp: 0.1 }, ['c2_ten'], { minYear: 1980 }),
     F('c2_air', '自強號戰機', 50, { units: { jet: 2 } }, ['c2_us'], { minYear: 1974, desc: 'F-5E 中正號。' }),
     F('c2_martial', '解除戒嚴', 50, { pp: 100, ideo: 'dem' }, [], { minYear: 1987, desc: '1987 年 7 月解除長達 38 年的戒嚴。' }),
+    F('c2_usaid', '美援', 50, { ind: 2, pp: 30 }, [], { minYear: 1951, desc: '1951–1965 年的美國經濟援助，協助穩定物價與發展基礎建設。' }),
+    F('c2_chips', '半導體產業', 50, { rsp: 0.08, icp: 0.04 }, ['c2_science'], { minYear: 1987, desc: '台積電（1987）開創晶圓代工產業。' }),
   ] },
   // ================================================================ 冷戰：英國
   ENG_COLD: { name: '冷戰：英國', list: [
@@ -343,6 +392,8 @@ export const FOCUS = {
     F('ec_harrier', '獵鷹式垂直起降機', 50, { units: { jet: 2 } }, [], { minYear: 1969 }),
     F('ec_falklands', '特遣艦隊', 50, { units: { car: 1, mar: 2 } }, ['ec_harrier'], { minYear: 1982 }),
     F('ec_navy', '皇家海軍現代化', 70, { units: { flt: 1, sub: 2 } }, []),
+    F('ec_nation', '主要產業國有化', 50, { ind: 2, pp: 20 }, ['ec_welfare'], { minYear: 1946, desc: '艾德禮政府把煤礦、鐵路、電力與鋼鐵收歸國有。' }),
+    F('ec_northsea', '北海油田', 70, { ind: 3, icp: 0.04 }, [], { minYear: 1975, desc: '北海油田在 1975 年開始產油，英國成為石油出口國。' }),
   ] },
   // ================================================================ 冷戰：法國
   FRA_COLD: { name: '冷戰：法國', list: [
@@ -357,6 +408,8 @@ export const FOCUS = {
     F('fc_mirage', '幻象戰鬥機', 50, { units: { jet: 2 } }, ['fc_5th'], { minYear: 1961 }),
     F('fc_amx', 'AMX-30 主力戰車', 50, { units: { mbt: 2 } }, ['fc_5th'], { minYear: 1966 }),
     F('fc_space', '法國太空計畫', 50, { rsp: 0.05 }, ['fc_5th'], { minYear: 1965 }),
+    F('fc_messmer', '核能發電計畫', 70, { icp: 0.06 }, ['fc_5th'], { minYear: 1974, desc: '梅斯梅爾計畫：石油危機後大量興建核電廠。' }),
+    F('fc_tgv', '高速鐵路', 50, { ind: 2 }, ['fc_modern'], { minYear: 1981, desc: '巴黎－里昂高速鐵路（TGV）在 1981 年通車。' }),
   ] },
   // ================================================================ 冷戰：西德
   FRG_COLD: { name: '西德', list: [
@@ -367,6 +420,8 @@ export const FOCUS = {
     F('fg_leopard', '豹式主力戰車', 50, { units: { mbt: 2 } }, ['fg_bw'], { minYear: 1965 }),
     F('fg_ost', '東方政策', 50, { pp: 80, tension: -3 }, [], { minYear: 1969, desc: '布蘭特與東歐和解。' }),
     F('fg_unify', '德國統一', 35, { pp: 100 }, ['fg_ost'], { minYear: 1989 }),
+    F('fg_ruhr', '魯爾區重建', 50, { ind: 2 }, [], { desc: '戰後重建魯爾區的煤礦與鋼鐵工業。' }),
+    F('fg_bbank', '德國聯邦銀行', 35, { icp: 0.04, pp: 20 }, ['fg_wunder'], { minYear: 1957, desc: '獨立的中央銀行維持穩定的德國馬克。' }),
   ] },
   // ================================================================ 通用國策
   GENERIC: { name: '國家發展', list: [
@@ -391,6 +446,13 @@ export const FOCUS = {
     F('n_air2', '空軍擴編', 70, { units: { ftr: 1, bmb: 1 } }, ['n_air']),
     F('n_jet', '噴射機時代', 50, { units: { jet: 1 } }, ['n_air2'], { minYear: 1955 }),
     F('n_navy', '海軍建設', 70, { units: { flt: 1 } }, ['n_ind1'], { coastal: true }),
+    F('n_bank', '國家銀行', 50, { pp: 30, ppd: 0.1 }, ['n_ind1'], { desc: '建立中央銀行，統一貨幣與財政。' }),
+    F('n_rail', '全國鐵路網', 70, { ind: 2, speed: 0.04 }, ['n_infra'], { desc: '興建連接工業區、港口與邊境的鐵路網。' }),
+    F('n_mines', '礦業開發', 50, { icp: 0.04 }, ['n_rail'], { desc: '開採煤、鐵與其他礦產。' }),
+    F('n_power', '電氣化', 70, { icp: 0.05 }, ['n_mines'], { minYear: 1945, desc: '興建發電廠與電網，工廠全面電氣化。' }),
+    F('n_ports', '港口擴建', 50, { escort: 0.1, ind: 1 }, ['n_ind1'], { coastal: true, desc: '擴建商港與造船廠。' }),
+    F('n_agri', '農業機械化', 50, { man: 100 }, ['n_infra'], { desc: '引進拖拉機與化肥，釋放更多勞動力。' }),
+    F('n_voc', '技職教育', 50, { rsp: 0.04, fcost: 0.05 }, ['n_research'], { desc: '培養工程師與技術工人。' }),
   ] },
   GENERIC_COLD: { name: '冷戰時期', list: [
     F('gc_rebuild', '戰後重建', 70, { ind: 2 }, [], { minYear: 1946 }),
@@ -409,5 +471,10 @@ export const FOCUS = {
     F('gc_revolution', '社會主義革命', 35, { ideo: 'com', pp: 80, man: 100 }, ['gc_land'], { alt: true, excl: ['gc_coup', 'gc_democracy'] }),
     F('gc_democracy', '民主改革', 50, { ideo: 'dem', pp: 60, ppd: 0.2 }, ['gc_rebuild'], { alt: true, excl: ['gc_coup', 'gc_revolution'] }),
     F('gc_nukes', '核武計畫', 70, { nukeSpeed: 0.5 }, ['gc_science'], { alt: true, minYear: 1965 }),
+    F('gc_isi', '進口替代工業化', 70, { ind: 3 }, ['gc_5yp'], { excl: ['gc_open'], desc: '以關稅保護國內工業，自行生產原本仰賴進口的產品。' }),
+    F('gc_open', '引進外資', 70, { ind: 2, icp: 0.05 }, ['gc_5yp'], { excl: ['gc_isi'], desc: '開放外國投資與技術合作，加入國際貿易體系。' }),
+    F('gc_green', '綠色革命', 50, { man: 200 }, ['gc_land'], { minYear: 1965, desc: '高產量品種、灌溉與化肥大幅提高糧食產量。' }),
+    F('gc_hydro', '水力發電', 50, { icp: 0.04 }, ['gc_rebuild'], { minYear: 1955, desc: '興建大型水壩與水力發電廠。' }),
+    F('gc_tourism', '觀光業', 35, { pp: 40 }, ['gc_rebuild'], { minYear: 1960, desc: '發展觀光業，賺取外匯。' }),
   ] },
 };

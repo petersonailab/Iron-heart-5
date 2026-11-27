@@ -1097,6 +1097,8 @@ function historyGuide(S, A) {
     const r = safeRegion(S, 'SOV');
     if (r >= 0 && lost > 0.2) A.units('SOV', { inf: lost > 0.35 ? 4 : 2 }, r);
     if (lost > 0.3) { A.tempMod('SOV', 'def', 0.1, 30); A.tempMod('SOV', 'att', 0.05, 30); }
+    // 工業東遷與租借法案：史實上蘇聯自 1942 年起的坦克與飛機產量都超過德國
+    if (y >= 1942 && (C.ic || 0) < (S.C.GER.ic || 0) * 1.15) A.tempMod('SOV', 'icp', y >= 1943 ? 0.15 : 0.1, 30);
   }
   // 德國：兩線作戰與盟軍戰略轟炸造成的資源枯竭
   const deep = ['sov_moscow', 'sov_leningrad', 'sov_stalingrad'].some(id => A.ctrl(id) === 'GER') || (A.exists('SOV') && (S.C.SOV.surrender || 0) > 0.25);
